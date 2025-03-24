@@ -1,10 +1,16 @@
-import Hero from "@/components/hero";
-import ConnectSupabaseSteps from "@/components/tutorial/connect-supabase-steps";
-import SignUpUserSteps from "@/components/tutorial/sign-up-user-steps";
-import { hasEnvVars } from "@/utils/supabase/check-env-vars";
 import { createClient } from "@supabase/supabase-js";
-import { UUID } from "crypto";
 import Link from "next/link";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"; 
+import { Button } from "@/components/ui/button"; 
+import { MainNav } from "@/components/main-nav";
+import { cn } from "@/lib/utils";
 
 type Story = {
   id: string;
@@ -13,7 +19,8 @@ type Story = {
   content: string;
   genre: JSON;
   is_public: boolean;
-  created_at: Date;
+  created_at: string;
+  users: { username: string };
 };
 
 export default async function Home() {
@@ -24,8 +31,8 @@ export default async function Home() {
 
   const { data: stories, error } = await supabase
     .from("stories")
-    .select("*")
-    .filter("is_public", "eq", true); // Only fetch public stories
+    .select("*, users(username)")
+    .eq("is_public", true);
 
   if (error) {
     console.error("Error fetching stories:", error);
@@ -33,33 +40,45 @@ export default async function Home() {
   }
 
   return (
-    <div className="container mx-auto px-4">
-      <nav className="flex justify-between items-center py-4">
-        <h1 className="text-2xl font-bold">Little Stories</h1>
-        <div>
-          <Link href="/about" className="mr-4">About</Link>
-          <Link href="/dashboard">Dashboard</Link>
-        </div>
-      </nav>
+    <div className="container mx-auto py-10">
+      {/* Navigation */}
+      <MainNav />
 
-      <h1 className="text-3xl font-bold my-6">Stories</h1>
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold mb-2">Stories</h1>
+        <p className="text-muted-foreground">
+          Explore a collection of captivating stories.
+        </p>
+      </div>
+
+      {/* Stories Grid */}
       {stories?.length === 0 ? (
         <p>No stories available yet.</p>
       ) : (
-        <ul className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {stories?.map((story: Story) => (
-            <li key={story.id} className="border p-4 rounded shadow">
-              <h2 className="text-xl font-semibold">{story.title}</h2>
-              <p className="mt-2 line-clamp-3">{story.content}</p>
-              <p className="mt-4 text-sm text-gray-600">
-                By {story.author_id}
-              </p>
-              <Link href={`/stories/${story.id}`} className="text-blue-500 mt-2 inline-block">
-                Read more
-              </Link>
-            </li>
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {stories?.map((story) => (
+            <Card key={story.id}>
+              <CardHeader>
+                <CardTitle>{story.title}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="line-clamp-3 text-sm text-muted-foreground">
+                  {story.content}
+                </p>
+              </CardContent>
+              <CardFooter className="flex justify-between items-center">
+                <p className="text-sm text-gray-600">
+                  By {story.users?.username || "Unknown Author"}
+                </p>
+                <Link href={`/stories/${story.id}`}>
+                  <Button variant="outline" size="sm">
+                    Read More
+                  </Button>
+                </Link>
+              </CardFooter>
+            </Card>
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );
