@@ -1,9 +1,9 @@
-import { Card } from "@/components/ui/card";
-import { createClient } from "@supabase/supabase-js";
-import Link from "next/link";
+export default async function Page({ params }: { params: { story_id: string } }){
+    const { story_id } = await params;
 
-export default async function Story(){
     return (
-        <p>WIP</p>
-    )
+        <div>
+            <h1> ID: {story_id}</h1>
+        </div>
+    );
 }

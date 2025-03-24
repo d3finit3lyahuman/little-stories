@@ -1,6 +1,7 @@
 import { Geist } from "next/font/google";
 import "./globals.css";
 import React from "react";
+import { MainNav } from "@/components/main-nav"; // Import your MainNav component
 
 const defaultUrl = process.env.VERCEL_URL
   ? `https://${process.env.VERCEL_URL}`
@@ -24,7 +25,12 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={geistSans.className}>
-      <body>{children}</body>
+      <body className="flex flex-col min-h-screen">
+        <MainNav /> {/* Render MainNav at the top */}
+        <div className="flex-grow">
+          {children}
+        </div>
+      </body>
     </html>
   );
 }
