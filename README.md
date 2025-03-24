@@ -12,7 +12,7 @@ LittleStories is a microstory blog platform where creativity meets brevity. The 
 
 ## Technology
 
-LittleStories is built using NextJS, a React framework for server-side rendering. The platform uses Supabase for user authentication and data storage, and Tailwind CSS for styling.
+LittleStories is built using NextJS, a React framework for server-side rendering. The platform uses Supabase for user authentication and data storage, and Tailwind CSS for styling.no
 
 ## Purpose
 
