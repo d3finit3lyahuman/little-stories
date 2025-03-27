@@ -13,9 +13,9 @@ export function MainNav() {
         <Link href="/" className="mr-4">
           Home
         </Link>
-        <Link href="/about" className="mr-4">
+        {/* <Link href="/about" className="mr-4">
           About
-        </Link>
+        </Link> */}
         <Link href="/stories/new-story" className="mr-4">
             Write a Story
           </Link>

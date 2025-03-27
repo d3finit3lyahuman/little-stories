@@ -14,7 +14,7 @@ export default async function Home() {
 
   const { data: stories, error } = await supabase
     .from("stories")
-    .select("story_id, user_id, title, content, genre, created_at, is_public, users(username)")
+    .select("*, users(username)")
     .eq("is_public", true);
 
   if (error) {
@@ -23,7 +23,7 @@ export default async function Home() {
   }
 
   return (
-    <div className="container mx-auto py-10">
+    <div className="container mx-auto py-5">
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-2">Stories</h1>
         <p className="text-muted-foreground">

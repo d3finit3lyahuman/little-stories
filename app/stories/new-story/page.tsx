@@ -11,8 +11,10 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 
 const formSchema = z.object({
-    title: z.string().min(1, { message: "Title is required" }),
-    content: z.string().min(10, { message: "Content must be at least 10 characters" }),
+  title: z.string().min(1, { message: "Title is required" }),
+  content: z
+    .string()
+    .min(10, { message: "Content must be at least 10 characters" }),
 });
 
 const NewStoryPage = () => {
@@ -60,6 +62,7 @@ const NewStoryPage = () => {
                                         <FormControl>
                                             <Textarea 
                                                 placeholder="Write your story here..." 
+                                                maxLength={5000} // Limit to 5000 characters
                                                 className="min-h-[200px]" 
                                                 {...field}
                                             />

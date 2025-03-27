@@ -18,49 +18,52 @@ import { cn } from "@/lib/utils"; // cn utility
 export default async function Login(props: { searchParams: Promise<Message> }) {
   const searchParams = await props.searchParams;
   return (
-    <div className="container mx-auto py-10">
-       <Card className="w-full max-w-md">
-      <CardHeader className="space-y-1">
-        <CardTitle className="text-2xl font-medium">Sign in</CardTitle>
-        <CardDescription>
-          Don't have an account?{" "}
-          <Link className="text-foreground font-medium underline" href="/sign-up">
-            Sign up
-          </Link>
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-4">
-        <form className="grid gap-2">
-          <div className="grid gap-2">
-            <Label htmlFor="email">Email</Label>
-            <Input id="email" name="email" placeholder="you@example.com" required />
-          </div>
-          <div className="grid gap-2">
-            <div className="flex justify-between items-center">
-              <Label htmlFor="password">Password</Label>
-              <Link
-                className="text-xs text-foreground underline"
-                href="/forgot-password"
-              >
-                Forgot Password?
-              </Link>
+    <div className="flex justify-center items-center h-screen">
+      <Card className="w-full max-w-lg">
+        <CardHeader className="space-y-2 px-6 py-5">
+          <CardTitle className="text-3xl font-medium">Sign in</CardTitle>
+          <CardDescription>
+            Don't have an account?{" "}
+            <Link className="text-foreground font-medium underline" href="/sign-up">
+              Sign up
+            </Link>
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-5 px-6">
+          <form className="grid gap-3">
+            <div className="grid gap-2">
+              <Label htmlFor="email">Email</Label>
+              <Input id="email" name="email" placeholder="you@example.com" required className="p-3" />
             </div>
-            <Input
-              type="password"
-              id="password"
-              name="password"
-              placeholder="Your password"
-              required
-            />
-          </div>
+            <div className="grid gap-2">
+              <div className="flex justify-between items-center">
+                <Label htmlFor="password">Password</Label>
+                <Link
+                  className="text-xs text-foreground underline"
+                  href="/forgot-password"
+                >
+                  Forgot Password?
+                </Link>
+              </div>
+              <Input
+                type="password"
+                id="password"
+                name="password"
+                placeholder="Your password"
+                required
+                className="p-3"
+              />
+            </div>
 
-          <SubmitButton pendingText="Signing In..." formAction={signInAction}>
-            Sign in
-          </SubmitButton>
-        </form>
-      </CardContent>
-      <FormMessage message={searchParams} /> {/* Display form messages */}
-    </Card>
+            <SubmitButton pendingText="Signing In..." formAction={signInAction} className="mt-2">
+              Sign in
+            </SubmitButton>
+          </form>
+        </CardContent>
+        <CardFooter className="px-6 pb-5">
+          <FormMessage message={searchParams} />
+        </CardFooter>
+      </Card>
     </div>
   );
 }
