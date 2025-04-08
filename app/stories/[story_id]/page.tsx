@@ -31,7 +31,6 @@ export default async function Page({
       ) : !story ? (
         <div>Story not found</div>
       ) : (
-        // 2. Fix JSX structure: Card should be inside the div
         <div className="w-full max-w-2xl">
           <Card className="shadow-lg">
             <CardHeader>
@@ -46,12 +45,12 @@ export default async function Page({
               {/* Ensure story.content exists and is a string before splitting */}
               <div className="prose max-w-none">
                 {story.content && typeof story.content === "string"
-                  ? story.content.split("\n").map((paragraph, i) => (
+                  ? story.content.split("\n").map((paragraph: string, i: any) => (
                       <p key={i} className="mb-4">
                         {paragraph}
                       </p>
                     ))
-                  : // Optional: Handle cases where content might be missing or not a string
+                  :
                     "No content available."}
               </div>
             </CardContent>
@@ -66,7 +65,7 @@ export default async function Page({
               <BackButton />
             </CardFooter>
           </Card>
-        </div> // Closing tag for max-w-2xl div
+        </div> 
       )}
     </div>
   );
