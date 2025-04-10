@@ -4,12 +4,13 @@ import { StoryGrid } from "@/components/story-grid"; // Import components
 import { PaginationControls } from "@/components/pagination-controls"; // Import components
 
 interface HomeProps {
-  searchParams: { page?: string };
+  searchParams: Promise<{ page?: string }>;
 }
 
 const ITEMS_PER_PAGE = 9;
 
-export default async function Home({ searchParams }: HomeProps) {
+export default async function Home(props: HomeProps) {
+  const searchParams = await props.searchParams;
   const supabase = createClient();
 
   // --- Data Fetching ---
