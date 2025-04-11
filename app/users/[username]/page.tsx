@@ -1,11 +1,12 @@
 
 
-export default async function Page({
-    params,
-} : {
-    params: { username: string };
-}) {
-    const {username} = await params;
+export default async function Page(
+    props: {
+        params: Promise<{ username: string }>;
+    }
+) {
+    const params =  await props.params;
+    const {username} = params;
 
     return (
         <div className="container mx-auto py-5">
