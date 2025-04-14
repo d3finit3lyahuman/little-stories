@@ -38,7 +38,7 @@ export async function MainNav() {
   // Determine the profile link based on fetched data
   // Default to a generic profile page if username isn't found
   const profileHref =
-    user && userProfile?.username ? `/users/${userProfile.username}` : "/#"; // Fallback to /#
+    user && userProfile?.username ? `/profile/${userProfile.username}` : "/#"; // Fallback to /#
 
   return (
     <nav

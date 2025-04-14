@@ -79,7 +79,7 @@ export default async function Page(
                   <p className="text-sm text-muted-foreground">
                     By{" "}
                     <Link
-                      href={`/users/${authorUsername}`}
+                      href={`/profile/${authorUsername}`}
                       className="font-medium text-primary hover:underline"
                     >
                       {authorUsername}

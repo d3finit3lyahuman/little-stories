@@ -69,7 +69,7 @@ export function StoryGrid({ stories }: StoryGridProps) {
                   <p className="text-sm font-medium text-gray-700 dark:text-gray-400">
                     By{" "}
                     <Link
-                      href={`/users/${authorUsername}`}
+                      href={`/profile/${authorUsername}`}
                       className="hover:underline"
                     >
                       {authorUsername}
