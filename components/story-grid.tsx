@@ -56,11 +56,11 @@ export function StoryGrid({ stories }: StoryGridProps) {
               <CardTitle>{story.title || "Untitled Story"}</CardTitle>
             </CardHeader>
             <CardContent className="flex-grow pb-2 pt-0">
-              <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-muted-foreground break-words whitespace-normal overflow-hidden">
                 {story.content && story.content.length > 200
                   ? `${story.content.slice(0, 200)}...`
                   : story.content || "No preview available."}
-              </p>
+                </p>
             </CardContent>
             <CardFooter className="mt-auto flex flex-col items-start gap-1.5 pt-1">
               {/* --- Author Info --- */}

@@ -12,7 +12,110 @@ type ActionResult =
   | { success: true; story_id: string; claimToken: string } // Guest user case
   | { success: false; error: string }; // Failure case
 
-export const createStoryAction = async (formData: FormData): Promise<ActionResult> => {
+type ClaimActionResult =
+  | { success: true; story_id: string; message: string }
+  | { success: false; error: string };
+
+export const claimStoryAction = async (
+  formData: FormData
+): Promise<ClaimActionResult> => {
+  // Get Supabase client & check user authentication
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  // Check if user is logged in
+  if (authError || !user) {
+    console.error("Claim Story Auth Error:", authError?.message);
+    return { success: false, error: "You must be logged in to claim a story." };
+  }
+
+  // Get claim token
+  const claimToken = formData.get("claim_token")?.toString()?.trim();
+
+  // Validate token format
+  if (
+    !claimToken ||
+    !/^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$/.test(
+      claimToken
+    )
+  ) {
+    return { success: false, error: "Invalid claim token format provided." };
+  }
+
+  // Attempt to update the story AND select the ID in one go
+  console.log(
+    `Attempting to claim story with token: ${claimToken} for user ${user.id}`
+  );
+
+  // --- Step 4: Call the database function via RPC ---
+  console.log(
+    `Attempting to claim story via RPC with token: ${claimToken} for user: ${user.id}`
+  );
+
+  const { data: updatedStory, error: rpcError } = await supabase
+    .rpc("claim_story", {
+      // Pass arguments matching the function definition
+      input_claim_token: claimToken,
+      claimer_user_id: user.id,
+    })
+    .select() // Select all columns returned by the function (*)
+    .single(); // Expect the function to return the single updated row
+
+  // 5. Handle RPC Errors
+  if (rpcError) {
+    console.error("!!! Story Claim RPC Error:", rpcError);
+    // Check if it's the "no rows" error from .single()
+    if (rpcError.code === "PGRST116") {
+      console.log(`No unclaimed story found via RPC for token: ${claimToken}`);
+      return {
+        success: false,
+        error:
+          "Invalid or already used claim token. Story not found or already claimed.",
+      };
+    }
+    // Handle other potential errors like function not found, permission denied on function etc.
+    let userMessage = "Failed to claim story. Please try again later.";
+    if (rpcError.message.includes("permission denied")) {
+      userMessage = "Permission denied to execute claim function.";
+    }
+    return { success: false, error: userMessage };
+  }
+
+  // 6. Check if data was returned (should be guaranteed by .single() if no error)
+  if (!updatedStory?.story_id) {
+    // Check specifically for story_id
+    console.error(
+      `Claim RPC successful according to DB, but no story data returned for token: ${claimToken}`
+    );
+    return {
+      success: false,
+      error: "An unexpected error occurred after claiming (missing data).",
+    };
+  }
+
+  // --- Step 7: Success! ---
+  const updatedStoryId = updatedStory.story_id;
+  console.log(
+    `Successfully claimed story ID: ${updatedStoryId} for user ${user.id} via RPC`
+  );
+
+  // Revalidate relevant paths
+  revalidatePath("/");
+  revalidatePath(`/stories/${updatedStoryId}`);
+
+  return {
+    success: true,
+    story_id: updatedStoryId,
+    message: "Story successfully claimed and linked to your account!",
+  };
+};
+
+export const createStoryAction = async (
+  formData: FormData
+): Promise<ActionResult> => {
   // Get Supabase client & check user authentication (doesn't error if no user)
   const supabase = await createClient();
   const {
@@ -23,7 +126,7 @@ export const createStoryAction = async (formData: FormData): Promise<ActionResul
   const title = formData.get("title")?.toString()?.trim();
   const content = formData.get("content")?.toString()?.trim();
   const genres = formData.getAll("genres") as string[];
-  const isPublicString = formData.get("is_public")?.toString(); 
+  const isPublicString = formData.get("is_public")?.toString();
 
   // Server-side Validation
   if (!title || title.length === 0) {
@@ -95,13 +198,13 @@ export const createStoryAction = async (formData: FormData): Promise<ActionResul
       if (insertError.message.includes("permission denied")) {
         userMessage = "Failed to save story due to permissions. Check RLS.";
       }
-      return {success: false, error: userMessage}; // Return error object
+      return { success: false, error: userMessage }; // Return error object
     }
     if (!newStoryData?.story_id) {
       console.error(
         "Story Insert Success but no story_id returned (Logged-in)."
       );
-      return {success: false, error: "Failed to create story (missing ID)."}; // Return error object
+      return { success: false, error: "Failed to create story (missing ID)." }; // Return error object
     }
 
     // Success! Revalidate and redirect to story page
@@ -111,7 +214,7 @@ export const createStoryAction = async (formData: FormData): Promise<ActionResul
     revalidatePath("/");
     revalidatePath(`/stories/${newStoryData.story_id}`); // Revalidate the specific story page
 
-    return {success: true, story_id: newStoryData.story_id}; // Return success object
+    return { success: true, story_id: newStoryData.story_id }; // Return success object
   } else {
     // --- GUEST USER FLOW ---
 
@@ -131,7 +234,7 @@ export const createStoryAction = async (formData: FormData): Promise<ActionResul
     };
 
     // Insert story and select ID
-    console.log("Attempting to insert story for guest user:", storyData);
+    console.log("Attempting to insert story for guest user");
     const { data: newStoryData, error: insertError } = await supabase
       .from("stories")
       .insert(storyData)
@@ -147,11 +250,11 @@ export const createStoryAction = async (formData: FormData): Promise<ActionResul
         userMessage =
           "Failed to save story due to permissions. Check RLS for guest submissions.";
       }
-      return {success: false, error: userMessage}; // Return error object
+      return { success: false, error: userMessage }; // Return error object
     }
     if (!newStoryData?.story_id) {
       console.error("Story Insert Success but no story_id returned (Guest).");
-      return {success: false, error: "Failed to create story (missing ID)."}; // Return error object
+      return { success: false, error: "Failed to create story (missing ID)." }; // Return error object
     }
 
     // Success! Redirect to a page to show the claim token
@@ -160,7 +263,11 @@ export const createStoryAction = async (formData: FormData): Promise<ActionResul
     );
     revalidatePath("/"); // Revalidate public story lists
 
-    return {success: true, story_id: newStoryData.story_id, claimToken: claimToken}; // Return success object
+    return {
+      success: true,
+      story_id: newStoryData.story_id,
+      claimToken: claimToken,
+    }; // Return success object
   }
 };
 
