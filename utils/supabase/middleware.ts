@@ -2,10 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
 
 export const updateSession = async (request: NextRequest) => {
-  // This `try/catch` block is only here for the interactive tutorial.
-  // Feel free to remove once you have Supabase connected.
   try {
-    // Create an unmodified response
     let response = NextResponse.next({
       request: {
         headers: request.headers,
@@ -35,24 +32,25 @@ export const updateSession = async (request: NextRequest) => {
       },
     );
 
-    // This will refresh session if expired - required for Server Components
-    // https://supabase.com/docs/guides/auth/server-side/nextjs
-    const user = await supabase.auth.getUser();
+    const { data: { session }, error } = await supabase.auth.getSession(); // Use getSession for clarity
 
-    // protected routes
-    if (request.nextUrl.pathname.startsWith("/protected") && user.error) {
-      return NextResponse.redirect(new URL("/sign-in", request.url));
+    // Redirect unauthenticated users trying to access protected routes
+    if (error || !session) { // If error getting session OR no session exists
+        if (request.nextUrl.pathname.startsWith("/protected")) {
+            return NextResponse.redirect(new URL("/sign-in", request.url));
+        }
+        // Add other protected routes here if needed
+        // e.g., if (request.nextUrl.pathname.startsWith("/profile")) { ... }
     }
 
-    if (request.nextUrl.pathname === "/" && !user.error) {
-      return NextResponse.redirect(new URL("/protected", request.url));
-    }
 
+
+    // Refresh the session cookie if needed
     return response;
+
   } catch (e) {
-    // If you are here, a Supabase client could not be created!
-    // This is likely because you have not set up environment variables.
-    // Check out http://localhost:3000 for Next Steps.
+    console.error("Middleware Error:", e); // Log the actual error
+    // Fallback response
     return NextResponse.next({
       request: {
         headers: request.headers,
@@ -60,3 +58,18 @@ export const updateSession = async (request: NextRequest) => {
     });
   }
 };
+
+// Ensure you have a matcher config in middleware.ts if needed
+// export const config = {
+//   matcher: [
+//     /*
+//      * Match all request paths except for the ones starting with:
+//      * - _next/static (static files)
+//      * - _next/image (image optimization files)
+//      * - favicon.ico (favicon file)
+//      * Feel free to modify this pattern to include more paths.
+//      */
+//     '/((?!_next/static|_next/image|favicon.ico|auth/callback|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+//   ],
+// }
+

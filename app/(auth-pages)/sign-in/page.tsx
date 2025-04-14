@@ -1,9 +1,8 @@
 import { signInAction } from "@/app/actions";
 import { FormMessage, Message } from "@/components/form-message";
 import { SubmitButton } from "@/components/submit-button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import Link from "next/link";
+// Import buttonVariants
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -11,57 +10,87 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card"; // Shadcn Card
-import { cn } from "@/lib/utils"; // cn utility
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import Link from "next/link";
+import { cn } from "@/lib/utils";
 
 export default async function Login(props: { searchParams: Promise<Message> }) {
   const searchParams = await props.searchParams;
+
+  if ("message" in searchParams || "error" in searchParams || "success" in searchParams) {
+    const messageData = searchParams as Message;
+    return (
+      <div className="flex min-h-screen w-full items-center justify-center p-4">
+        <div className="w-full max-w-md">
+          <FormMessage message={messageData} />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex justify-center items-center h-screen">
-      <Card className="w-full max-w-lg">
-        <CardHeader className="space-y-2 px-6 py-5">
-          <CardTitle className="text-3xl font-medium">Sign in</CardTitle>
+    <div className="flex min-h-screen w-full flex-col items-center justify-center bg-background p-4">
+      <Card className="w-full max-w-md">
+        <CardHeader className="text-center">
+          <CardTitle className="text-2xl">Sign In</CardTitle>
           <CardDescription>
             Don't have an account?{" "}
-            <Link className="text-foreground font-medium underline" href="/sign-up">
+            <Link
+              href="/sign-up"
+              className={cn(
+                buttonVariants({ variant: "link" }),
+                "h-auto p-0" 
+              )}
+            >
               Sign up
             </Link>
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-5 px-6">
-          <form className="grid gap-3">
-            <div className="grid gap-2">
+        <form action={signInAction}>
+          <CardContent className="space-y-4">
+            <div className="space-y-1.5">
               <Label htmlFor="email">Email</Label>
-              <Input id="email" name="email" placeholder="you@example.com" required className="p-3" />
+              <Input
+                id="email"
+                name="email"
+                type="email"
+                placeholder="you@example.com"
+                required
+              />
             </div>
-            <div className="grid gap-2">
-              <div className="flex justify-between items-center">
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
                 <Label htmlFor="password">Password</Label>
                 <Link
-                  className="text-xs text-foreground underline"
                   href="/forgot-password"
+                  className={cn(
+                    buttonVariants({ variant: "link", size: "sm" }),
+                    "h-auto p-0 text-xs" 
+                  )}
                 >
                   Forgot Password?
                 </Link>
               </div>
               <Input
-                type="password"
                 id="password"
+                type="password"
                 name="password"
-                placeholder="Your password"
+                placeholder="••••••••"
                 required
-                className="p-3"
               />
             </div>
-
-            <SubmitButton pendingText="Signing In..." formAction={signInAction} className="mt-2">
+          </CardContent>
+          <CardFooter className="flex flex-col gap-4">
+            <SubmitButton
+              className="w-full"
+              pendingText="Signing In..."
+            >
               Sign in
             </SubmitButton>
-          </form>
-        </CardContent>
-        <CardFooter className="px-6 pb-5">
-          <FormMessage message={searchParams} />
-        </CardFooter>
+          </CardFooter>
+        </form>
       </Card>
     </div>
   );
