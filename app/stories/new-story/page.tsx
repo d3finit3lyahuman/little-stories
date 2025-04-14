@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { use } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -12,19 +12,37 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox"; // Import Checkbox
+import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import {
   Form,
   FormField,
   FormItem,
   FormLabel,
   FormControl,
-  FormDescription, // Added FormDescription
-  FormMessage, // Added FormMessage
+  FormDescription,
+  FormMessage,
 } from "@/components/ui/form";
-import { useForm } from "react-hook-form";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Copy, Info, AlertCircle, Globe, Lock } from "lucide-react";
+import { set, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+import { createStoryAction } from "@/app/actions";
+import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { User } from "@supabase/supabase-js";
+import { createClient } from "@/utils/supabase/client";
 
 // --- Define available genres (replace with your actual list) ---
 const AVAILABLE_GENRES = [
@@ -51,82 +69,149 @@ const formSchema = z.object({
   genres: z
     .array(z.string())
     .min(1, { message: "Please select at least one genre." }), // Require at least one genre
+  is_public: z.boolean().default(true), // Default to true
 });
 
+type ActionResult =
+  | { success: true; storyId: string; claimToken?: string | null }
+  | { success: false; error: string };
+
 const NewStoryPage = () => {
+  const router = useRouter();
+  const [isLoading, setIsLoading] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [showClaimDialog, setShowClaimDialog] = useState(false);
+  const [claimToken, setClaimToken] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(null); // State to store user session
+
+  //  --- Fetch user session to check if logged in ---
+  useEffect(() => {
+    const supabase = createClient();
+    const getUserSession = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      setCurrentUser(user); // Set user session
+    };
+    getUserSession();
+
+    // Listen for auth state changes
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        setCurrentUser(session?.user ?? null); // Update user session on auth state change
+      }
+    );
+    return () => {
+      authListener?.subscription.unsubscribe(); // Cleanup subscription on unmount
+    };
+  }, []); // Empty dependency array to run once on mount
+
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       title: "",
       content: "",
-      genres: [], // Initialize genres as an empty array
+      genres: [],
+      is_public: true, // Default to public
     },
   });
 
-  function onSubmit(values: z.infer<typeof formSchema>) {
-    console.log("Form Submitted:", values);
-    // --- Future Implementation ---
-    // 1. Check user authentication status (e.g., using Supabase client)
-    // 2. If logged in:
-    //    - Prepare data: { title, content, genres, user_id: loggedInUserId }
-    //    - Call server action/API to insert into 'stories' table.
-    // 3. If guest:
-    //    - Generate a unique claim_token (e.g., using crypto.randomUUID())
-    //    - Prepare data: { title, content, genres, user_id: null, claim_token: generatedToken }
-    //    - Call server action/API to insert into 'stories' table.
-    //    - **IMPORTANT**: After successful insertion, redirect or update UI to show the generatedToken to the user ONCE.
-    // 4. Handle success/error states (e.g., show toast notifications).
-    alert(
-      "Form submitted (check console). Actual saving logic not implemented yet."
-    );
+  const isPublicValue = form.watch("is_public"); // Watch the is_public field
+
+  async function onSubmit(values: z.infer<typeof formSchema>) {
+    setIsLoading(true);
+    setServerError(null); // Reset server error state
+    setShowClaimDialog(false); // Reset claim dialog state
+    setClaimToken(null); // Reset claim token state
+
+    // create FormData object
+    const formData = new FormData();
+    formData.append("title", values.title);
+    formData.append("content", values.content);
+    values.genres.forEach((genre) => formData.append("genres", genre));
+    formData.append("is_public", String(values.is_public)); // Append is_public value
+
+    //Call server action
+    const result = await createStoryAction(formData);
+
+    setIsLoading(false); // Reset loading state
+
+    if (result.success) {
+      form.reset(); // Reset form fields
+      if (result.claimToken) {
+        setClaimToken(result.claimToken); // Set claim token for dialog
+        setShowClaimDialog(true); // Show claim dialog
+      } else {
+        router.push(`/stories/${result.story_id}`); // Redirect to the new story page
+      }
+    } else {
+      setServerError(result.error); // Set server error message
+    }
   }
 
+  const handleCopy = () => {
+    if (claimToken) {
+      navigator.clipboard
+        .writeText(claimToken)
+        .then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000); // Reset copied state after 2 seconds
+        })
+        .catch((error) => console.error("Failed to copy: ", error));
+    }
+  };
   return (
-    <div className="container mx-auto max-w-3xl py-10"> {/* Centered content */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Create a New Story</CardTitle>
-          <CardDescription>
-            Share your creativity with the world. Guests can submit too!
-          </CardDescription>
-        </CardHeader>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)}>
-            <CardContent className="space-y-6">
-              <FormField
-                control={form.control}
-                name="title"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Title</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Enter story title" {...field} />
-                    </FormControl>
-                    <FormMessage /> {/* Show title errors */}
-                  </FormItem>
-                )}
-              />
+    <>
+      <div className="container mx-auto max-w-3xl py-10">
+        <Card>
+          <CardHeader>
+            <CardTitle>Create a New Story</CardTitle>
+            <CardDescription>
+              Share your creativity with the world. Guests can submit too!
+            </CardDescription>
+          </CardHeader>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)}>
+              <CardContent className="space-y-6">
+                {/* Title */}
+                <FormField
+                  control={form.control}
+                  name="title"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Title</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="Enter story title"
+                          {...field}
+                          maxLength={150}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
-              {/* --- Genre Selection --- */}
-              <FormField
-                control={form.control}
-                name="genres"
-                render={() => (
-                  <FormItem>
-                    <div className="mb-4">
-                      <FormLabel className="text-base">Genres</FormLabel>
-                      <FormDescription>
-                        Select one or more genres that fit your story.
-                      </FormDescription>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
-                      {AVAILABLE_GENRES.map((genre) => (
-                        <FormField
-                          key={genre}
-                          control={form.control}
-                          name="genres"
-                          render={({ field }) => {
-                            return (
+                {/* Genres */}
+                <FormField
+                  control={form.control}
+                  name="genres"
+                  render={() => (
+                    <FormItem>
+                      <div className="mb-4">
+                        <FormLabel className="text-base">Genres</FormLabel>
+                        <FormDescription>
+                          Select one or more genres.
+                        </FormDescription>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
+                        {AVAILABLE_GENRES.map((genre) => (
+                          <FormField
+                            key={genre}
+                            control={form.control}
+                            name="genres"
+                            render={({ field }) => (
                               <FormItem
                                 key={genre}
                                 className="flex flex-row items-start space-x-3 space-y-0"
@@ -142,7 +227,7 @@ const NewStoryPage = () => {
                                           ])
                                         : field.onChange(
                                             field.value?.filter(
-                                              (value) => value !== genre
+                                              (v) => v !== genre
                                             )
                                           );
                                     }}
@@ -152,48 +237,135 @@ const NewStoryPage = () => {
                                   {genre}
                                 </FormLabel>
                               </FormItem>
-                            );
-                          }}
-                        />
-                      ))}
-                    </div>
-                    <FormMessage /> {/* Show genre errors */}
-                  </FormItem>
-                )}
-              />
-              {/* --- End Genre Selection --- */}
+                            )}
+                          />
+                        ))}
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
-              <FormField
-                control={form.control}
-                name="content"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Content</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder="Write your story here..."
-                        maxLength={10000} // Match schema
-                        className="min-h-[250px]" // Slightly taller
-                        {...field}
-                      />
-                    </FormControl>
+                {/* Content */}
+                <FormField
+                  control={form.control}
+                  name="content"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Content</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          placeholder="Write your story here..."
+                          {...field}
+                          maxLength={10000}
+                          className="min-h-[250px]"
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Min 50, Max 10,000 characters.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {/* --- Visibility Toggle --- */}
+                <FormField
+                  control={form.control}
+                  name="is_public"
+                  render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                    <div className="space-y-0.5">
+                    <FormLabel className="text-base">Visibility</FormLabel>
                     <FormDescription>
-                      Max 10,000 characters.
+                      {currentUser
+                      ? "Public stories are visible to everyone. Private stories are only visible to you."
+                      : "Guest stories are always public."}
                     </FormDescription>
-                    <FormMessage /> {/* Show content errors */}
+                    </div>
+                    <FormControl>
+                    {/* Disable switch if no user is logged in */}
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                      disabled={!currentUser || isLoading} // Disable if no user or loading
+                      aria-readonly={!currentUser} // Accessibility hint
+                    />
+                    </FormControl>
+                    {/* Only show icons when user is logged in */}
+                    {currentUser && (
+                    <div className="ml-2">
+                      {isPublicValue ? (
+                      <Globe className="h-5 w-5 text-blue-500" />
+                      ) : (
+                      <Lock className="h-5 w-5 text-gray-500" />
+                      )}
+                    </div>
+                    )}
                   </FormItem>
+                  )}
+                />
+                {/* --- End Visibility Toggle --- */}
+
+                {/* Display Server Errors */}
+                {serverError && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>Error</AlertTitle>
+                    <AlertDescription>{serverError}</AlertDescription>
+                  </Alert>
                 )}
-              />
-            </CardContent>
-            <CardFooter>
-              <Button type="submit" className="w-full">
-                Submit Story
+              </CardContent>
+              <CardFooter>
+                <Button type="submit" className="w-full" disabled={isLoading}>
+                  {isLoading ? "Submitting..." : "Submit Story"}
+                </Button>
+              </CardFooter>
+            </form>
+          </Form>
+        </Card>
+      </div>
+
+      {/* Claim Token Alert Dialog */}
+      <AlertDialog open={showClaimDialog} onOpenChange={setShowClaimDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-center text-xl">
+              Story Submitted! Save Your Claim Token
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-center">
+              <strong>Keep this token safe and private!</strong> It's the only way to link
+              this story to your account later.{" "}
+              <strong className="text-destructive">
+              You will only see this once.
+              </strong>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="my-4 rounded-md border bg-muted p-4 font-mono text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <span className="break-all">{claimToken}</span>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleCopy} 
+                aria-label="Copy claim token"
+                className="h-7 w-7 flex-shrink-0"
+              >
+                <Copy className={`h-4 w-4 ${copied ? "text-green-600" : ""}`} />
               </Button>
-            </CardFooter>
-          </form>
-        </Form>
-      </Card>
-    </div>
+            </div>
+            {copied && (
+              <p className="mt-2 text-xs text-green-600 text-right">Copied!</p>
+            )}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setShowClaimDialog(false)}>
+              OK, I've Saved It
+            </AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 };
 
