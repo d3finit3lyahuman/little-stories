@@ -6,6 +6,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import crypto from "crypto";
+import * as z from "zod";
 
 type ActionResult =
   | { success: true; story_id: string; claimToken?: null } // Logged-in user case
@@ -15,6 +16,132 @@ type ActionResult =
 type ClaimActionResult =
   | { success: true; story_id: string; message: string }
   | { success: false; error: string };
+
+  type UpdateActionResult =
+  | { success: true; message: string; updatedUsername?: string }
+  | { success: false; error: string };
+
+const editProfileSchemaServer = z.object({
+  username: z.string().min(3, "Username must be at least 3 characters").max(50, "Username cannot exceed 50 characters")
+    .regex(/^[a-zA-Z0-9_]+$/, "Username can only contain letters, numbers, and underscores"), // Example regex
+  bio: z.string().max(500, "Bio cannot exceed 500 characters").optional().nullable(), // Optional bio
+  is_author: z.boolean().default(false),
+  is_reader: z.boolean().default(false),
+}).refine(data => data.is_author || data.is_reader, {
+  message: "User must be at least a reader or an author.",
+});
+
+export const updateProfileAction = async (
+  formData: FormData
+): Promise<UpdateActionResult> => {
+  // 1. Supabase client & AUTHENTICATED user
+  const supabase = await createClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    console.error("Update Profile Auth Error:", authError?.message);
+    return { success: false, error: "Authentication failed. Please log in again." };
+  }
+
+  // Extract data from FormData
+  const rawFormData = {
+    username: formData.get("username")?.toString()?.trim(),
+    bio: formData.get("bio")?.toString()?.trim() || null,
+    // Checkbox values are 'on' if checked, null otherwise. Convert to boolean.
+    is_author: formData.get("is_author") === 'on',
+    is_reader: formData.get("is_reader") === 'on',
+  };
+
+  // Validate data using Zod schema
+  const validationResult = editProfileSchemaServer.safeParse(rawFormData);
+  if (!validationResult.success) {
+    console.error("Server Validation Error:", validationResult.error.flatten().fieldErrors);
+    // Combine errors into a single string (If I have time, make this prettier)
+    const errorMessages = Object.values(validationResult.error.flatten().fieldErrors)
+                                .map(errors => errors?.join(', '))
+                                .filter(Boolean)
+                                .join(' ');
+    return { success: false, error: `Invalid input: ${errorMessages || 'Please check your entries.'}` };
+  }
+
+  const validatedData = validationResult.data;
+
+  // Username Uniqueness Check
+  // Fetch current profile to compare username
+   const { data: currentProfile, error: fetchError } = await supabase
+    .from('users')
+    .select('username')
+    .eq('user_id', user.id)
+    .single();
+
+   if (fetchError) {
+       console.error("Error fetching current profile:", fetchError);
+       return { success: false, error: "Could not verify current profile." };
+   }
+
+   let usernameChanged = false;
+   // If username changed, check if the new one is taken by *another* user
+   if (currentProfile && validatedData.username !== currentProfile.username) {
+       usernameChanged = true;
+       const { data: existingUser, error: checkError } = await supabase
+           .from('users')
+           .select('user_id')
+           .eq('username', validatedData.username)
+           .neq('user_id', user.id) // Exclude the current user
+           .maybeSingle(); // Check if *any other* user has this username
+
+       if (checkError) {
+           console.error("Error checking username uniqueness:", checkError);
+           return { success: false, error: "Could not verify username availability." };
+       }
+       if (existingUser) {
+           return { success: false, error: "Username is already taken. Please choose another." };
+       }
+   }
+
+
+  // Update the user's profile in the 'users' table
+  console.log(`Attempting to update profile for user: ${user.id}`);
+  const { error: updateError } = await supabase
+    .from("users")
+    .update({
+      username: validatedData.username,
+      bio: validatedData.bio,
+      is_author: validatedData.is_author,
+      is_reader: validatedData.is_reader,
+    })
+    .eq("user_id", user.id); // IMPORTANT: Only update the logged-in user's row
+
+  // Handle Update Error
+  if (updateError) {
+    console.error("!!! Profile Update Error:", updateError);
+    // RLS on UPDATE could cause this
+    let userMessage = "Failed to update profile. Please try again later.";
+    if (updateError.message.includes("permission denied")) {
+      userMessage = "Failed to update profile due to permissions. Check RLS UPDATE policies.";
+    } else if (updateError.code === '23505' && updateError.message.includes('username')) {
+        // Catch unique constraint violation again (should be caught earlier but just in case)
+        userMessage = "Username is already taken.";
+    }
+    return { success: false, error: userMessage };
+  }
+
+  // Success! Revalidate paths
+  console.log(`Successfully updated profile for user: ${user.id}`);
+  // Revalidate the user's own profile page (using the potentially new username)
+  revalidatePath(`/profile/${validatedData.username}`);
+  // Revalidate the generic edit page path too
+  revalidatePath('/profile/edit');
+  // Revalidate the main nav if it displays username/info
+  revalidatePath('/', 'layout'); // Revalidate layout to potentially update nav
+
+  return {
+      success: true,
+      message: "Profile updated successfully!",
+      // Only include updatedUsername in the result if it actually changed
+      updatedUsername: usernameChanged ? validatedData.username : undefined
+    };
+};
 
 export const claimStoryAction = async (
   formData: FormData
