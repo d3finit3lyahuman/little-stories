@@ -119,13 +119,6 @@ export default function EditProfilePage() {
     startTransition(async () => {
       const actionResult = await updateProfileAction(formData);
       setResult(actionResult);
-
-      // If username changed, redirect to the new profile URL after success
-      if (actionResult.success && actionResult.updatedUsername) {
-         setTimeout(() => {
-           router.push(`/profile/${actionResult.updatedUsername}`);
-         }, 1500); // Short delay to show success message
-      }
     });
   }
 

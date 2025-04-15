@@ -19,6 +19,7 @@ interface StoryData {
   genre: string[] | null;
   avg_rating?: number | null;
   created_at: string | null;
+  updated_at?: string | null;
   is_public: boolean;
 }
 
@@ -37,6 +38,19 @@ const formatDate = (dateString: string | null) => {
       year: "numeric", month: "long", day: "numeric",
     });
   } catch (e) { return "Invalid date"; }
+};
+
+// Check if story was edited recently
+const wasEdited = (createdAt: string | null, updatedAt: string | null): boolean => {
+  if (!updatedAt || !createdAt) return false;
+  try {
+      const createdTime = new Date(createdAt).getTime();
+      const updatedTime = new Date(updatedAt).getTime();
+      // Check if updated_at is significantly later than created_at (> 60 seconds)
+      return updatedTime > (createdTime + 60000);
+  } catch (e) {
+      return false; 
+  }
 };
 
 export function UserProfileStories({
@@ -79,13 +93,13 @@ export function UserProfileStories({
       }}
       className="w-full" // Adjust width as needed
     >
-      <CarouselContent className="-ml-4"> {/* Negative margin for spacing */}
+      <CarouselContent className="-ml-4"> 
         {stories.map((story) => (
           <CarouselItem key={story.story_id} className="pl-4 md:basis-1/2 lg:basis-1/3">
-            <div className="p-1"> {/* Add padding if needed */}
+            <div className="p-1"> 
               {/* --- Story Card --- */}
-              <Card className="flex h-full flex-col"> {/* Ensure card takes full height of item */}
-                <CardHeader className="relative pb-3"> {/* Added relative for badge positioning */}
+              <Card className="flex h-full flex-col"> 
+                <CardHeader className="relative pb-3"> 
                   {isOwner && !story.is_public && (
                     <Badge variant="outline" className="absolute right-3 top-3 text-xs">
                       Private
@@ -116,10 +130,20 @@ export function UserProfileStories({
                       ))}
                     </div>
                   )}
+
+                  
+
+                  {/* Date and Edited Status */}
                   <p className="text-muted-foreground">
-                    Published: {formatDate(story.created_at)}
+                     Published: {formatDate(story.created_at)}
+                     {/* --- ADDED EDITED INDICATOR --- */}
+                     {wasEdited(story.created_at, story.updated_at || null) && (
+                        <span className="italic"> (Edited)</span>
+                     )}
+                     {/* --- END EDITED INDICATOR --- */}
                   </p>
-                  <div className="mt-2 flex w-full justify-end gap-2">
+                  {/* ... (Actions: Edit/Read More buttons) ... */}
+                   <div className="mt-2 flex w-full justify-end gap-2">
                     {isOwner && (
                       <Link href={`/stories/${story.story_id}/edit`}
                         className={buttonVariants({ variant: "ghost", size: "sm" })}>
@@ -133,7 +157,6 @@ export function UserProfileStories({
                   </div>
                 </CardFooter>
               </Card>
-              {/* --- End Story Card --- */}
             </div>
           </CarouselItem>
         ))}

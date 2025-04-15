@@ -1,12 +1,12 @@
 "use client";
 
-import React, { use } from "react";
+import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter, // Added CardFooter for structure
+  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -34,13 +34,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Copy, Info, AlertCircle, Globe, Lock } from "lucide-react";
-import { set, useForm } from "react-hook-form";
+import { Copy, Info, AlertCircle, Globe, Lock, Loader2 } from "lucide-react";
+import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { createStoryAction } from "@/app/actions";
 import { useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
 import { User } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/client";
 
@@ -76,6 +75,10 @@ type ActionResult =
   | { success: true; storyId: string; claimToken?: string | null }
   | { success: false; error: string };
 
+interface UserProfileData {
+  is_author: boolean;
+}
+
 const NewStoryPage = () => {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
@@ -84,6 +87,8 @@ const NewStoryPage = () => {
   const [claimToken, setClaimToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null); // State to store user session
+  const [userProfile, setUserProfile] = useState<UserProfileData | null>(null); // State to store user profile data
+  const [authChecked, setAuthChecked] = useState(false); // State to check if auth is checked
 
   //  --- Fetch user session to check if logged in ---
   useEffect(() => {
@@ -106,6 +111,62 @@ const NewStoryPage = () => {
       authListener?.subscription.unsubscribe(); // Cleanup subscription on unmount
     };
   }, []); // Empty dependency array to run once on mount
+
+   // --- Fetch user session AND profile data ---
+  useEffect(() => {
+    const supabase = createClient();
+    let isMounted = true;
+
+    const checkUserAccess = async () => {
+      setAuthChecked(false); // Start check
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+      if (!isMounted) return;
+
+      if (authError || !user) {
+        // User is not logged in (guest) - ALLOW access
+        setCurrentUser(null);
+        setUserProfile(null);
+        setAuthChecked(true); // Auth check complete
+        return;
+      }
+
+      // User is logged in, set user and fetch profile
+      setCurrentUser(user);
+      const { data: profile, error: profileError } = await supabase
+        .from("users")
+        .select("is_author") // Only need is_author for this check
+        .eq("user_id", user.id)
+        .single<UserProfileData>();
+
+      if (!isMounted) return;
+
+      if (profileError) {
+        console.error("Error fetching user profile for access check:", profileError);
+        // Handle error - maybe redirect or show error? For now, deny access.
+        setServerError("Could not verify user role.");
+        setUserProfile(null); // Assume not author if profile fetch fails
+      } else {
+        setUserProfile(profile);
+        // --- ACCESS CONTROL LOGIC ---
+        if (!profile?.is_author) {
+          // User is logged in but NOT an author - Redirect away
+          console.log("User is not an author, redirecting...");
+          router.replace("/"); // Redirect to home page (or show an access denied message)
+          // No need to setAuthChecked(true) here as we are navigating away
+          return; // Stop further execution in this effect run
+        }
+      }
+      setAuthChecked(true); // Auth check complete
+    };
+
+    checkUserAccess();
+    
+    return () => {
+      isMounted = false;
+    };
+  }, [router]);
+
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -143,7 +204,8 @@ const NewStoryPage = () => {
         setClaimToken(result.claimToken); // Set claim token for dialog
         setShowClaimDialog(true); // Show claim dialog
       } else {
-        router.push(`/stories/${result.story_id}`); // Redirect to the new story page
+        // Alert user that the story was created successfully
+        alert("Story created successfully!"); // Replace with your preferred notification method
       }
     } else {
       setServerError(result.error); // Set server error message
@@ -161,6 +223,33 @@ const NewStoryPage = () => {
         .catch((error) => console.error("Failed to copy: ", error));
     }
   };
+
+    // --- Render loading state or access denied ---
+    if (!authChecked) {
+      // Show loading indicator while checking auth/profile
+      return (
+        <div className="flex min-h-screen w-full items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      );
+    }
+
+    // Fallback in case redirection fails
+    if (currentUser && !userProfile?.is_author) {
+      return (
+        <div className="container mx-auto max-w-3xl py-10 text-center">
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Access Denied</AlertTitle>
+            <AlertDescription>
+              You must have an Author role to create stories.
+            </AlertDescription>
+          </Alert>
+        </div>
+      );
+   }
+
+  //  --- Render the form if user is logged in and is an author ---
   return (
     <>
       <div className="container mx-auto max-w-3xl py-10">
@@ -270,39 +359,36 @@ const NewStoryPage = () => {
                 />
 
                 {/* --- Visibility Toggle --- */}
-                <FormField
-                  control={form.control}
-                  name="is_public"
-                  render={({ field }) => (
+                <FormField control={form.control} name="is_public" render={({ field }) => (
                   <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
                     <div className="space-y-0.5">
-                    <FormLabel className="text-base">Visibility</FormLabel>
-                    <FormDescription>
-                      {currentUser
-                      ? "Public stories are visible to everyone. Private stories are only visible to you."
-                      : "Guest stories are always public."}
-                    </FormDescription>
+                      <FormLabel className="text-base">Visibility</FormLabel>
+                      <FormDescription>
+                        {currentUser // Check currentUser state here
+                          ? "Public stories are visible to everyone. Private stories are only visible to you."
+                          : "Guest stories are always public."}
+                      </FormDescription>
                     </div>
                     <FormControl>
-                    {/* Disable switch if no user is logged in */}
-                    <Switch
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
-                      disabled={!currentUser || isLoading} // Disable if no user or loading
-                      aria-readonly={!currentUser} // Accessibility hint
-                    />
-                    </FormControl>
-                    {/* Only show icons when user is logged in */}
-                    {currentUser && (
-                    <div className="ml-2">
-                      {isPublicValue ? (
-                      <Globe className="h-5 w-5 text-blue-500" />
-                      ) : (
-                      <Lock className="h-5 w-5 text-gray-500" />
+                        {/* Disable switch if no user is logged in */}
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                          disabled={!currentUser || isLoading} // Disable if no user or loading
+                          aria-readonly={!currentUser} // Accessibility hint
+                        />
+                      </FormControl>
+                      {/* Only show icons when user is logged in */}
+                      {currentUser && (
+                        <div className="ml-2">
+                          {isPublicValue ? (
+                            <Globe className="h-5 w-5 text-blue-500" />
+                          ) : (
+                            <Lock className="h-5 w-5 text-gray-500" />
+                          )}
+                        </div>
                       )}
-                    </div>
-                    )}
-                  </FormItem>
+                    </FormItem>
                   )}
                 />
                 {/* --- End Visibility Toggle --- */}
@@ -334,10 +420,10 @@ const NewStoryPage = () => {
               Story Submitted! Save Your Claim Token
             </AlertDialogTitle>
             <AlertDialogDescription className="text-center">
-              <strong>Keep this token safe and private!</strong> It's the only way to link
-              this story to your account later.{" "}
+              <strong>Keep this token safe and private!</strong> It's the only
+              way to link this story to your account later.{" "}
               <strong className="text-destructive">
-              You will only see this once.
+                You will only see this once.
               </strong>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -347,7 +433,7 @@ const NewStoryPage = () => {
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={handleCopy} 
+                onClick={handleCopy}
                 aria-label="Copy claim token"
                 className="h-7 w-7 flex-shrink-0"
               >

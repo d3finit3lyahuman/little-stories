@@ -17,30 +17,160 @@ type ClaimActionResult =
   | { success: true; story_id: string; message: string }
   | { success: false; error: string };
 
-  type UpdateActionResult =
+type UpdateActionResult =
   | { success: true; message: string; updatedUsername?: string }
   | { success: false; error: string };
 
-const editProfileSchemaServer = z.object({
-  username: z.string().min(3, "Username must be at least 3 characters").max(50, "Username cannot exceed 50 characters")
-    .regex(/^[a-zA-Z0-9_]+$/, "Username can only contain letters, numbers, and underscores"), // Example regex
-  bio: z.string().max(500, "Bio cannot exceed 500 characters").optional().nullable(), // Optional bio
-  is_author: z.boolean().default(false),
-  is_reader: z.boolean().default(false),
-}).refine(data => data.is_author || data.is_reader, {
-  message: "User must be at least a reader or an author.",
+type UpdateStoryResult =
+  | { success: true; message: string; story_id: string }
+  | { success: false; error: string };
+
+const editProfileSchemaServer = z
+  .object({
+    username: z
+      .string()
+      .min(3, "Username must be at least 3 characters")
+      .max(50, "Username cannot exceed 50 characters")
+      .regex(
+        /^[a-zA-Z0-9_]+$/,
+        "Username can only contain letters, numbers, and underscores"
+      ), // Example regex
+    bio: z
+      .string()
+      .max(500, "Bio cannot exceed 500 characters")
+      .optional()
+      .nullable(), // Optional bio
+    is_author: z.boolean().default(false),
+    is_reader: z.boolean().default(false),
+  })
+  .refine((data) => data.is_author || data.is_reader, {
+    message: "User must be at least a reader or an author.",
+  });
+
+const editStorySchema = z.object({
+  story_id: z.string().uuid("Invalid Story ID format."), // Validate UUID
+  title: z
+    .string()
+    .min(1, "Title is required")
+    .max(150, "Title cannot exceed 150 characters"),
+  content: z
+    .string()
+    .min(50, "Content must be at least 50 characters")
+    .max(10000, "Content cannot exceed 10,000 characters"),
+  is_public: z.boolean().optional(),
 });
+
+export const updateStoryAction = async (
+  formData: FormData
+): Promise<UpdateStoryResult> => {
+  // Get Supabase client & Authenticated User
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { success: false, error: "Authentication required." };
+  }
+
+  // Extract and Validate Data
+  const rawData = {
+    story_id: formData.get("story_id")?.toString(),
+    title: formData.get("title")?.toString()?.trim(),
+    content: formData.get("content")?.toString()?.trim(),
+    is_public: formData.get("is_public") === "true",
+  };
+
+  const validationResult = editStorySchema.safeParse(rawData);
+  if (!validationResult.success) {
+    const errorMessages = Object.values(
+      validationResult.error.flatten().fieldErrors
+    )
+      .map((errors) => errors?.join(", "))
+      .filter(Boolean)
+      .join(" ");
+    return {
+      success: false,
+      error: `Invalid input: ${errorMessages || "Check entries."}`,
+    };
+  }
+
+  const { story_id, title, content, is_public } = validationResult.data;
+
+  // Authorization Check: Verify Ownership
+  console.log(`Checking ownership for story ${story_id} by user ${user.id}`);
+  const { data: storyOwner, error: ownerCheckError } = await supabase
+    .from("stories")
+    .select("user_id")
+    .eq("story_id", story_id)
+    .single<{ user_id: string }>();
+
+  if (ownerCheckError) {
+    console.error("Owner check error:", ownerCheckError);
+    return { success: false, error: "Could not verify story ownership." };
+  }
+  if (!storyOwner || storyOwner.user_id !== user.id) {
+    console.warn(
+      `User ${user.id} attempted to edit story ${story_id} owned by ${storyOwner?.user_id}`
+    );
+    return {
+      success: false,
+      error: "You do not have permission to edit this story.",
+    };
+  }
+
+  // Perform Update
+  console.log(`Updating story ${story_id}`);
+  const { error: updateError } = await supabase
+    .from("stories")
+    .update({
+      title: title,
+      content: content,
+      is_public: is_public,
+    })
+    .eq("story_id", story_id)
+    .eq("user_id", user.id); // Double-check ownership in WHERE clause
+
+  // Handle Update Error
+  if (updateError) {
+    console.error("!!! Story Update Error:", updateError);
+    let userMessage = "Failed to update story. Please try again.";
+    if (updateError.message.includes("permission denied")) {
+      userMessage = "Permission denied to update story (RLS issue).";
+    }
+    return { success: false, error: userMessage };
+  }
+
+  // Success! Revalidate relevant paths
+  console.log(`Successfully updated story ${story_id}`);
+  revalidatePath(`/stories/${story_id}`); // Revalidate the story page
+  revalidatePath(`/profile/[username]`, "layout"); // Revalidate profile pages (use layout for dynamic)
+  revalidatePath("/"); // Revalidate home page
+
+  return {
+    success: true,
+    message: "Story updated successfully!",
+    story_id: story_id,
+  };
+};
 
 export const updateProfileAction = async (
   formData: FormData
 ): Promise<UpdateActionResult> => {
-  // 1. Supabase client & AUTHENTICATED user
+  // Supabase client & AUTHENTICATED user
   const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
 
   if (authError || !user) {
     console.error("Update Profile Auth Error:", authError?.message);
-    return { success: false, error: "Authentication failed. Please log in again." };
+    return {
+      success: false,
+      error: "Authentication failed. Please log in again.",
+    };
   }
 
   // Extract data from FormData
@@ -48,57 +178,70 @@ export const updateProfileAction = async (
     username: formData.get("username")?.toString()?.trim(),
     bio: formData.get("bio")?.toString()?.trim() || null,
     // Checkbox values are 'on' if checked, null otherwise. Convert to boolean.
-    is_author: formData.get("is_author") === 'on',
-    is_reader: formData.get("is_reader") === 'on',
+    is_author: formData.get("is_author") === "on",
+    is_reader: formData.get("is_reader") === "on",
   };
 
   // Validate data using Zod schema
   const validationResult = editProfileSchemaServer.safeParse(rawFormData);
   if (!validationResult.success) {
-    console.error("Server Validation Error:", validationResult.error.flatten().fieldErrors);
+    console.error(
+      "Server Validation Error:",
+      validationResult.error.flatten().fieldErrors
+    );
     // Combine errors into a single string (If I have time, make this prettier)
-    const errorMessages = Object.values(validationResult.error.flatten().fieldErrors)
-                                .map(errors => errors?.join(', '))
-                                .filter(Boolean)
-                                .join(' ');
-    return { success: false, error: `Invalid input: ${errorMessages || 'Please check your entries.'}` };
+    const errorMessages = Object.values(
+      validationResult.error.flatten().fieldErrors
+    )
+      .map((errors) => errors?.join(", "))
+      .filter(Boolean)
+      .join(" ");
+    return {
+      success: false,
+      error: `Invalid input: ${errorMessages || "Please check your entries."}`,
+    };
   }
 
   const validatedData = validationResult.data;
 
   // Username Uniqueness Check
   // Fetch current profile to compare username
-   const { data: currentProfile, error: fetchError } = await supabase
-    .from('users')
-    .select('username')
-    .eq('user_id', user.id)
+  const { data: currentProfile, error: fetchError } = await supabase
+    .from("users")
+    .select("username")
+    .eq("user_id", user.id)
     .single();
 
-   if (fetchError) {
-       console.error("Error fetching current profile:", fetchError);
-       return { success: false, error: "Could not verify current profile." };
-   }
+  if (fetchError) {
+    console.error("Error fetching current profile:", fetchError);
+    return { success: false, error: "Could not verify current profile." };
+  }
 
-   let usernameChanged = false;
-   // If username changed, check if the new one is taken by *another* user
-   if (currentProfile && validatedData.username !== currentProfile.username) {
-       usernameChanged = true;
-       const { data: existingUser, error: checkError } = await supabase
-           .from('users')
-           .select('user_id')
-           .eq('username', validatedData.username)
-           .neq('user_id', user.id) // Exclude the current user
-           .maybeSingle(); // Check if *any other* user has this username
+  let usernameChanged = false;
+  // If username changed, check if the new one is taken by *another* user
+  if (currentProfile && validatedData.username !== currentProfile.username) {
+    usernameChanged = true;
+    const { data: existingUser, error: checkError } = await supabase
+      .from("users")
+      .select("user_id")
+      .eq("username", validatedData.username)
+      .neq("user_id", user.id) // Exclude the current user
+      .maybeSingle(); // Check if *any other* user has this username
 
-       if (checkError) {
-           console.error("Error checking username uniqueness:", checkError);
-           return { success: false, error: "Could not verify username availability." };
-       }
-       if (existingUser) {
-           return { success: false, error: "Username is already taken. Please choose another." };
-       }
-   }
-
+    if (checkError) {
+      console.error("Error checking username uniqueness:", checkError);
+      return {
+        success: false,
+        error: "Could not verify username availability.",
+      };
+    }
+    if (existingUser) {
+      return {
+        success: false,
+        error: "Username is already taken. Please choose another.",
+      };
+    }
+  }
 
   // Update the user's profile in the 'users' table
   console.log(`Attempting to update profile for user: ${user.id}`);
@@ -118,10 +261,14 @@ export const updateProfileAction = async (
     // RLS on UPDATE could cause this
     let userMessage = "Failed to update profile. Please try again later.";
     if (updateError.message.includes("permission denied")) {
-      userMessage = "Failed to update profile due to permissions. Check RLS UPDATE policies.";
-    } else if (updateError.code === '23505' && updateError.message.includes('username')) {
-        // Catch unique constraint violation again (should be caught earlier but just in case)
-        userMessage = "Username is already taken.";
+      userMessage =
+        "Failed to update profile due to permissions. Check RLS UPDATE policies.";
+    } else if (
+      updateError.code === "23505" &&
+      updateError.message.includes("username")
+    ) {
+      // Catch unique constraint violation again (should be caught earlier but just in case)
+      userMessage = "Username is already taken.";
     }
     return { success: false, error: userMessage };
   }
@@ -131,16 +278,16 @@ export const updateProfileAction = async (
   // Revalidate the user's own profile page (using the potentially new username)
   revalidatePath(`/profile/${validatedData.username}`);
   // Revalidate the generic edit page path too
-  revalidatePath('/profile/edit');
+  revalidatePath("/profile/edit");
   // Revalidate the main nav if it displays username/info
-  revalidatePath('/', 'layout'); // Revalidate layout to potentially update nav
+  revalidatePath("/", "layout"); // Revalidate layout to potentially update nav
 
   return {
-      success: true,
-      message: "Profile updated successfully!",
-      // Only include updatedUsername in the result if it actually changed
-      updatedUsername: usernameChanged ? validatedData.username : undefined
-    };
+    success: true,
+    message: "Profile updated successfully!",
+    // Only include updatedUsername in the result if it actually changed
+    updatedUsername: usernameChanged ? validatedData.username : undefined,
+  };
 };
 
 export const claimStoryAction = async (
@@ -248,6 +395,34 @@ export const createStoryAction = async (
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  // Server-side role check
+  if (user) {
+    // If logged in, verify they are an author
+    const { data: profile, error: profileError } = await supabase
+      .from("users")
+      .select("is_author")
+      .eq("user_id", user.id)
+      .single<{ is_author: boolean }>(); // Type the expected result
+
+    if (profileError) {
+      console.error(
+        "Server Action: Error fetching profile for role check:",
+        profileError
+      );
+      return { success: false, error: "Could not verify user role." };
+    }
+    if (!profile?.is_author) {
+      console.warn(
+        `User ${user.id} attempted to create story but is not an author.`
+      );
+      return {
+        success: false,
+        error: "You do not have permission to create stories.",
+      };
+    }
+    // User is logged in AND is an author - proceed
+  }
 
   // Get form data
   const title = formData.get("title")?.toString()?.trim();
