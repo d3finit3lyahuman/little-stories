@@ -9,10 +9,23 @@ LittleStories is a microstory blog platform where creativity meets brevity. The 
 - **Community Engagement**: Read, rate, and comment on stories from other writers
 - **Discover**: Find new stories tailored to your interests
 - **Rankings**: See which stories are trending based on community ratings
+- **Moderation**: Admin tools to manage content and ensure community guidelines
 
-## Technology
+## Technology Stack
 
-LittleStories is built using NextJS, a React framework for server-side rendering. The platform uses Supabase for user authentication and data storage, and Tailwind CSS for styling.no
+- **Frontend**: NextJS 15 (App Router), React, TypeScript
+- **Styling**: Tailwind CSS, Shadcn/UI components
+- **Backend**: NextJS API Routes, Supabase
+- **Authentication**: Supabase Auth
+- **Database**: PostgreSQL (via Supabase)
+- **Deployment**: Netlify
+
+## Getting Started
+
+1. Clone the repository
+2. Install dependencies with `npm install`
+3. Set up your Supabase project and add environment variables
+4. Run the development server with `npm run dev`
 
 ## Purpose
 
