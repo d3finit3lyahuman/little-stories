@@ -6,10 +6,8 @@ LittleStories is a microstory blog platform where creativity meets brevity. The 
 
 - **User Accounts**: Create a personal profile to track your stories and interactions
 - **Story Creation**: Craft and publish your own microstories
-- **Community Engagement**: Read, rate, and comment on stories from other writers
-- **Discover**: Find new stories tailored to your interests
+- **Community Engagement**: Read and rate stories from other writers
 - **Rankings**: See which stories are trending based on community ratings
-- **Moderation**: Admin tools to manage content and ensure community guidelines
 
 ## Technology Stack
 
