@@ -60,7 +60,7 @@ export default async function Home(props: HomeProps) {
         { count: "exact" }
     )
     .eq("is_public", true)
-    .order("created_at", { ascending: false }) // Or avg_rating if preferred
+    .order("avg_rating", { ascending: false }) // Or avg_rating if preferred
     .range(offset, rangeEnd);
 
   if (storiesError) {
