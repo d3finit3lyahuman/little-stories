@@ -1,29 +1,29 @@
-import { createClient } from "@/utils/supabase/server"; // Use server client
+import { createClient } from "@/utils/supabase/server";
 import {
   Card, CardContent, CardFooter, CardHeader, CardTitle,
 } from "@/components/ui/card";
 import { BackButton } from "@/components/back-button";
-import { Star } from "lucide-react";
+import { Star, Edit } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import type { User } from "@supabase/supabase-js"; // Import User type
 import { StarRatingInput } from "@/components/stories/star-rating-input";
-import { wasEdited } from "@/utils/utils"; 
+import { wasEdited } from "@/utils/utils";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
-// Update interface to include rating_count and potentially user_rating
-interface StoryData {
+// Interface for base story data fetched
+interface StoryBaseData {
   story_id: string;
+  user_id: string | null;
   title: string | null;
   content: string | null;
   created_at: string | null;
-  updated_at?: string | null; // Add if needed for edited status
+  updated_at?: string | null;
   genre?: string[] | null;
   avg_rating?: number | null;
-  rating_count?: number | null; // Add rating_count
-  users: { username: string | null } | null;
-  // Structure for user's rating from the join
-  user_rating: { rating: number }[] | null;
+  rating_count?: number | null;
+  users: { username: string | null } | null; 
 }
 
 export default async function Page(
@@ -34,44 +34,56 @@ export default async function Page(
   const params = await props.params;
   const { story_id } = params;
 
+  // Validate story_id format early 
+  if (!/^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$/.test(story_id)) {
+      console.error("Invalid story_id format in URL");
+      notFound();
+  }
+
   const supabase = await createClient();
 
   // --- Get Current Logged-in User ---
   const { data: { user: currentUser } } = await supabase.auth.getUser();
   const currentUserId = currentUser?.id;
 
-  // --- Fetch Story Data + Author + User's Rating ---
-  let storyQuery = supabase
+  // --- Fetch Base Story Data + Author ---
+  const { data: story, error: storyError } = await supabase
     .from("stories")
     .select(`
         *,
-        users ( username ),
-        user_rating: ratings ( rating )
-    `) // Select story, author, user's rating
-    .eq("story_id", story_id);
-
-  // --- Filter the joined ratings by the current user ID ---
-  if (currentUserId) {
-      storyQuery = storyQuery.eq('ratings.user_id', currentUserId);
-  } else {
-      // Ensure we still get the story even if no rating matches (user not logged in)
-      // This might require the join to be LEFT JOIN implicitly or explicitly
-      // Or fetch rating separately if this causes issues
-  }
-
-  const { data: story, error } = await storyQuery.single<StoryData>(); // Expect single story
+        user_id,
+        users ( username )
+    `) 
+    .eq("story_id", story_id)
+    .single<StoryBaseData>(); 
 
   // Handle story not found or fetch error
-  if (error || !story) {
-    console.error("Story fetch error or not found:", error?.message);
-    notFound();
+  if (storyError || !story) {
+    console.error("Story fetch error or not found:", storyError?.message);
+    notFound(); 
   }
 
-  // Extract user's rating from the potentially nested structure
-  const userRatingValue = story.user_rating?.[0]?.rating ?? 0;
+  // --- Fetch User's Rating (if logged in) ---
+  let userRatingValue = 0; // Default to 0
+  if (currentUserId) {
+    const { data: ratingData, error: ratingError } = await supabase
+      .from("ratings")
+      .select("rating")
+      .eq("user_id", currentUserId)
+      .eq("story_id", story_id) 
+      .maybeSingle<{ rating: number }>(); // Use maybeSingle as rating might not exist
 
-  // Helper checks (as before)
-  const hasAvgRating = typeof story.avg_rating === "number" && story.avg_rating >= 0; // Check >= 0
+    if (ratingError) {
+      console.error("Error fetching user rating:", ratingError.message);
+      // Proceed without user rating, maybe show a toast later if needed
+    } else if (ratingData) {
+      userRatingValue = ratingData.rating ?? 0;
+    }
+  }
+
+  // --- Prepare Data & Checks ---
+  const isOwner = !!currentUser && currentUser.id === story.user_id;
+  const hasAvgRating = typeof story.avg_rating === "number" && story.avg_rating >= 0;
   const authorUsername = story.users?.username;
   const hasAuthor = !!authorUsername;
   const hasGenre = story.genre && story.genre.length > 0;
@@ -87,73 +99,76 @@ export default async function Page(
             {wasEdited(story.created_at, story.updated_at || null) && <div className="italic">(Edited)</div>}
           </div>
 
-          <CardHeader className="pr-28"> {/* Keep padding */}
+          <CardHeader className="pr-28">
             <CardTitle className="text-2xl font-bold">
               {story.title || "Untitled Story"}
             </CardTitle>
-
             {/* Author */}
             <div className="mt-1">
               {hasAuthor ? (
                 <p className="text-sm text-muted-foreground"> By{" "} <Link href={`/profile/${authorUsername}`} className="font-medium text-primary hover:underline"> {authorUsername} </Link> </p>
               ) : ( <p className="text-sm text-muted-foreground"> By Unknown Author </p> )}
             </div>
-
-            {/* Average Rating Display (Read Only) - Moved from footer for clarity */}
+            {/* Average Rating */}
             {hasAvgRating && (
                 <div className="mt-1 flex items-center gap-1" title={`Average rating: ${story.avg_rating?.toFixed(1)}`}>
                     <Star className="h-4 w-4 fill-yellow-400 text-yellow-500" />
                     <span className="text-sm font-medium text-muted-foreground">
                         {story.avg_rating?.toFixed(1)}
-                        <span className="ml-1 text-xs">({story.rating_count ?? 0})</span>
+                        <span className="ml-1 text-xs">({story.rating_count ?? 0} {story.rating_count === 1 ? 'rating' : 'ratings'})</span>
                     </span>
                 </div>
             )}
-
           </CardHeader>
+
           <CardContent>
-            <div className="prose max-w-none dark:prose-invert">
+             <div className="prose max-w-none dark:prose-invert">
               {story.content && typeof story.content === "string"
                 ? story.content.split("\n").map((p, i) => <p key={i} className="mb-4 last:mb-0">{p}</p>)
                 : "No content available."}
             </div>
           </CardContent>
 
-            {/* Footer */}
-            <CardFooter className="border-t pt-4">
-            <div className="grid w-full grid-cols-3 items-center">
-              {/* Left side: Genres */}
-              <div className="flex flex-wrap items-center gap-1">
+          {/* Footer */}
+          <CardFooter className="flex flex-col items-stretch gap-4 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+            {/* Left side: Genres */}
+            <div className="flex flex-wrap items-center gap-1">
               {hasGenre && (
                 <>
-                <span className="mr-1 text-xs font-semibold text-muted-foreground">Genres:</span>
-                {story.genre?.map((g) => (
-                  <Badge key={g} variant="secondary" className="px-1.5 py-0.5 text-xs">{g}</Badge>
-                ))}
+                  <span className="mr-1 text-xs font-semibold text-muted-foreground">Genres:</span>
+                  {story.genre?.map((g) => ( <Badge key={g} variant="secondary" className="px-1.5 py-0.5 text-xs">{g}</Badge> ))}
                 </>
               )}
-              </div>
-              
-              {/* Middle: User Rating Input (only if logged in) */}
-              <div className="flex justify-center">
+            </div>
+
+            {/* Middle: User Rating Input (only if logged in) */}
+            <div className="flex justify-center sm:absolute sm:left-1/2 sm:-translate-x-1/2">
               {currentUser && (
                 <div className="text-center">
-                {/* <p className="mb-0.5 text-xs font-medium text-muted-foreground">Your Rating</p> */}
-                <StarRatingInput
-                  storyId={story.story_id}
-                  initialRating={userRatingValue}
-                  size={5}
-                />
+                  <StarRatingInput
+                    storyId={story.story_id}
+                    initialRating={userRatingValue} // Use fetched value
+                    size={5}
+                  />
                 </div>
               )}
-              </div>
-              
-              {/* Right side: Back Button */}
-              <div className="flex justify-end">
-              <BackButton />
-              </div>
             </div>
-            </CardFooter>
+
+            {/* Right side: Action Buttons */}
+            <div className="flex w-full justify-end gap-2 sm:w-auto">
+              {/* EDIT BUTTON (Conditional) */}
+              {isOwner && (
+                <Link
+                  href={`/stories/${story.story_id}/edit`}
+                  className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
+                  aria-label="Edit Story"
+                >
+                  <Edit className="h-4 w-4" />
+                </Link>
+              )}
+              <BackButton />
+            </div>
+          </CardFooter>
         </Card>
       </div>
     </div>

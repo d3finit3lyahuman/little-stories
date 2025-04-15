@@ -29,6 +29,10 @@ type RatingActionResult =
   | { success: true; message: string }
   | { success: false; error: string };
 
+  type DeleteResult =
+  | { success: true; message: string }
+  | { success: false; error: string };
+
 const editProfileSchemaServer = z
   .object({
     username: z
@@ -74,6 +78,10 @@ const ratingSchema = z.object({
 
 const removeRatingSchema = z.object({
   story_id: z.string().uuid("Invalid Story ID."),
+});
+
+const deleteStorySchema = z.object({
+  story_id: z.string().uuid("Invalid Story ID format."),
 });
 
 export const removeRatingAction = async (
@@ -301,6 +309,73 @@ export const updateStoryAction = async (
     message: "Story updated successfully!",
     story_id: story_id,
   };
+};
+
+export const deleteStoryAction = async (
+  formData: FormData
+): Promise<DeleteResult> => {
+  // Get Client & Authenticated User
+  const supabase = await createClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { success: false, error: "Authentication required." };
+  }
+
+  // Extract and Validate Story ID
+  const rawData = {
+    story_id: formData.get("story_id")?.toString(),
+  };
+  const validationResult = deleteStorySchema.safeParse(rawData);
+  if (!validationResult.success) {
+    return { success: false, error: "Invalid Story ID provided." };
+  }
+  const { story_id } = validationResult.data;
+
+  // Authorisation Check: Verify Ownership BEFORE deleting
+  console.log(`Checking ownership for DELETE on story ${story_id} by user ${user.id}`);
+  const { data: storyOwner, error: ownerCheckError } = await supabase
+    .from("stories")
+    .select("user_id") // Only need user_id for check
+    .eq("story_id", story_id)
+    .single<{ user_id: string | null }>(); // user_id could potentially be null for guest stories
+
+  if (ownerCheckError) {
+    console.error("Owner check error before delete:", ownerCheckError);
+    return { success: false, error: "Could not verify story ownership before deleting." };
+  }
+  // Ensure story exists and belongs to the current user
+  if (!storyOwner || storyOwner.user_id !== user.id) {
+    console.warn(`User ${user.id} attempted to DELETE story ${story_id} not owned by them (owner: ${storyOwner?.user_id})`);
+    return { success: false, error: "You do not have permission to delete this story." };
+  }
+
+  // Perform Delete
+  console.log(`Attempting to delete story ${story_id}`);
+  const { error: deleteError } = await supabase
+    .from("stories")
+    .delete()
+    .eq("story_id", story_id)
+    .eq("user_id", user.id); // Crucial: Ensure RLS/query only deletes owned story
+
+  // Handle Delete Error
+  if (deleteError) {
+    console.error("!!! Story Delete Error:", deleteError);
+    let userMessage = "Failed to delete story. Please try again.";
+    if (deleteError.message.includes("permission denied")) {
+      // Check RLS DELETE policy on stories table
+      userMessage = "Permission denied to delete story (RLS issue).";
+    }
+    return { success: false, error: userMessage };
+  }
+
+  // Success! Revalidate paths and prepare for redirect
+  console.log(`Successfully deleted story ${story_id}`);
+  revalidatePath(`/profile/[username]`, 'layout'); // Revalidate profile pages
+  revalidatePath('/'); // Revalidate home page
+
+  // We won't redirect directly here, let the client handle it after success
+  return { success: true, message: "Story deleted successfully!" };
 };
 
 export const updateProfileAction = async (

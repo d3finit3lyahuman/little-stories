@@ -22,15 +22,27 @@ import {
   FormDescription,
   FormMessage,
 } from "@/components/ui/form";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Switch } from "@/components/ui/switch";
-import { AlertCircle, CheckCircle2, Loader2, Globe, Lock } from "lucide-react";
+import { AlertCircle, CheckCircle2, Loader2, Globe, Lock, Trash2 } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { updateStoryAction } from "@/app/actions"; // Import the update action
+import { updateStoryAction, deleteStoryAction } from "@/app/actions"; // Import the update action
 import { createClient } from "@/utils/supabase/client";
 import Link from "next/link";
+import { useToast } from "@/hooks/use-toast";
 
 const editStorySchemaClient = z.object({
   title: z
@@ -48,6 +60,10 @@ type UpdateStoryResult =
   | { success: true; message: string; story_id: string }
   | { success: false; error: string };
 
+type DeleteResult =
+  | { success: true; message: string }
+  | { success: false; error: string };
+
 interface StoryEditData {
   title: string;
   content: string;
@@ -58,10 +74,15 @@ export default function EditStoryPage() {
   const router = useRouter();
   const params = useParams(); // Get route parameters
   const storyId = params.story_id as string; // Extract story_id
+  const { toast } = useToast();
 
-  const [isPending, startTransition] = useTransition();
+  const [isUpdatePending, startUpdateTransition] = useTransition();
+  const [isDeletePending, startDeleteTransition] = useTransition(); // For delete action
   const [initialLoading, setInitialLoading] = useState(true);
-  const [result, setResult] = useState<UpdateStoryResult | null>(null);
+  const [updateResult, setUpdateResult] = useState<UpdateStoryResult | null>(
+    null
+  );
+  const [deleteResult, setDeleteResult] = useState<DeleteResult | null>(null); // For delete action
   const [loadError, setLoadError] = useState<string | null>(null); // Error during initial load
 
   const form = useForm<z.infer<typeof editStorySchemaClient>>({
@@ -143,9 +164,10 @@ export default function EditStoryPage() {
     };
   }, [storyId, router, form]); // Include dependencies
 
-  // --- Handle Form Submission ---
-  async function onSubmit(values: z.infer<typeof editStorySchemaClient>) {
-    setResult(null);
+  // --- Handle Update Submission ---
+  async function onUpdateSubmit(values: z.infer<typeof editStorySchemaClient>) {
+    setUpdateResult(null);
+    setDeleteResult(null);
 
     const formData = new FormData();
     formData.append("story_id", storyId); // Include story_id in form data
@@ -153,11 +175,55 @@ export default function EditStoryPage() {
     formData.append("content", values.content);
     formData.append("is_public", String(values.is_public));
 
-    startTransition(async () => {
+    startUpdateTransition(async () => {
       const actionResult = await updateStoryAction(formData);
-      setResult(actionResult);
+      setUpdateResult(actionResult);
+
+      if (actionResult.success) {
+        toast({
+          title: "Success!",
+          description: actionResult.message,
+          variant: "default",
+        });
+      } else {
+        toast({
+          title: "Update Failed",
+          description: actionResult.error,
+          variant: "destructive",
+        });
+      }
     });
   }
+
+  // --- Handle Delete Action ---
+  const handleDeleteConfirm = () => {
+    setUpdateResult(null); // Clear other results
+    setDeleteResult(null);
+
+    const formData = new FormData();
+    formData.append("story_id", storyId);
+
+    startDeleteTransition(async () => {
+      const actionResult = await deleteStoryAction(formData);
+      setDeleteResult(actionResult); // Set delete result state
+
+      if (actionResult.success) {
+        toast({
+          title: "Story Deleted",
+          description: actionResult.message,
+          variant: "default",
+        });
+        // Redirect to profile or home page after successful deletion
+        router.push("/"); // Or router.push('/profile/your-username');
+      } else {
+        toast({
+          title: "Delete Failed",
+          description: actionResult.error,
+          variant: "destructive",
+        });
+      }
+    });
+  };
 
   // --- Render Logic ---
   if (initialLoading) {
@@ -187,12 +253,10 @@ export default function EditStoryPage() {
       <Card>
         <CardHeader>
           <CardTitle>Edit Story</CardTitle>
-          <CardDescription>
-            Make changes to your story's title and content.
-          </CardDescription>
+          <CardDescription>Make changes or delete your story.</CardDescription>
         </CardHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)}>
+          <form onSubmit={form.handleSubmit(onUpdateSubmit)}>
             <CardContent className="space-y-6">
               {/* Title */}
               <FormField
@@ -247,8 +311,8 @@ export default function EditStoryPage() {
                       <Switch
                         checked={field.value}
                         onCheckedChange={field.onChange}
-                        disabled={isPending || initialLoading} // Disable while loading/saving
-                        aria-readonly={isPending || initialLoading}
+                        disabled={isUpdatePending || initialLoading} // Disable while loading/saving
+                        aria-readonly={isUpdatePending || initialLoading}
                       />
                     </FormControl>
                     {/* Icon indicator */}
@@ -264,36 +328,74 @@ export default function EditStoryPage() {
               />
               {/* --- End Visibility Toggle --- */}
 
-              {/* Display Action Results */}
-              {result && !result.success && (
+              {/* Display Update Action Results */}
+              {updateResult && !updateResult.success && (
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
                   <AlertTitle>Update Failed</AlertTitle>
-                  <AlertDescription>{result.error}</AlertDescription>
+                  <AlertDescription>{updateResult.error}</AlertDescription>
                 </Alert>
               )}
-              {result && result.success && (
+              {updateResult && updateResult.success && (
                 <Alert>
                   <CheckCircle2 className="h-4 w-4" />
                   <AlertTitle>Success!</AlertTitle>
-                  <AlertDescription>{result.message}</AlertDescription>
+                  <AlertDescription>{updateResult.message}</AlertDescription>
+                </Alert>
+              )}
+              {/* Display Delete Action Results (might be cleared by update attempt) */}
+              {deleteResult && !deleteResult.success && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>Delete Failed</AlertTitle>
+                  <AlertDescription>{deleteResult.error}</AlertDescription>
                 </Alert>
               )}
             </CardContent>
-            <CardFooter className="flex justify-end gap-3">
-              {" "}
-              {/* Align buttons right */}
-              <Button
-                variant="ghost"
-                type="button"
-                asChild
-                disabled={isPending}
-              >
-                <Link href={`/stories/${storyId}`}>Cancel</Link>
-              </Button>
-              <Button type="submit" disabled={isPending || initialLoading}>
-                {isPending ? "Saving..." : "Save Changes"}
-              </Button>
+            <CardFooter className="flex justify-between gap-3">
+               {/* Delete Button with Confirmation */}
+               <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                     <Button
+                       variant="destructive"
+                       type="button" // Important: prevent form submission
+                       disabled={isDeletePending || initialLoading}
+                     >
+                       <Trash2 className="mr-2 h-4 w-4" />
+                       {isDeletePending ? "Deleting..." : "Delete Story"}
+                     </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                     <AlertDialogHeader>
+                       <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                       <AlertDialogDescription>
+                         This action cannot be undone. This will permanently delete your
+                         story and all associated data (like ratings).
+                       </AlertDialogDescription>
+                     </AlertDialogHeader>
+                     <AlertDialogFooter>
+                       <AlertDialogCancel disabled={isDeletePending}>Cancel</AlertDialogCancel>
+                       {/* Action button calls the delete handler */}
+                       <AlertDialogAction
+                         onClick={handleDeleteConfirm}
+                         disabled={isDeletePending}
+                         className="bg-destructive text-destructive-foreground hover:bg-destructive/90" // Destructive style
+                       >
+                         {isDeletePending ? "Deleting..." : "Yes, delete story"}
+                       </AlertDialogAction>
+                     </AlertDialogFooter>
+                  </AlertDialogContent>
+               </AlertDialog>
+
+               {/* Save and Cancel Buttons */}
+               <div className="flex gap-3">
+                  <Button variant="ghost" type="button" asChild disabled={isUpdatePending || isDeletePending}>
+                     <Link href={`/stories/${storyId}`}>Cancel</Link>
+                  </Button>
+                  <Button type="submit" disabled={isUpdatePending || isDeletePending || initialLoading}>
+                    {isUpdatePending ? "Saving..." : "Save Changes"}
+                  </Button>
+               </div>
             </CardFooter>
           </form>
         </Form>
