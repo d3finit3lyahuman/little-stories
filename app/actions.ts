@@ -25,6 +25,10 @@ type UpdateStoryResult =
   | { success: true; message: string; story_id: string }
   | { success: false; error: string };
 
+type RatingActionResult =
+  | { success: true; message: string }
+  | { success: false; error: string };
+
 const editProfileSchemaServer = z
   .object({
     username: z
@@ -59,6 +63,92 @@ const editStorySchema = z.object({
     .max(10000, "Content cannot exceed 10,000 characters"),
   is_public: z.boolean().optional(),
 });
+
+const ratingSchema = z.object({
+  story_id: z.string().uuid("Invalid Story ID."),
+  rating: z.coerce // Convert string from FormData to number
+    .number()
+    .min(1, "Rating must be at least 1.")
+    .max(5, "Rating cannot exceed 5."),
+});
+
+export const submitRatingAction = async (
+  formData: FormData
+): Promise<RatingActionResult> => {
+  // Get Client & Authenticated User
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { success: false, error: "You must be logged in to rate stories." };
+  }
+
+  // Extract and Validate Data
+  const rawData = {
+    story_id: formData.get("story_id")?.toString(),
+    rating: formData.get("rating")?.toString(), // Get as string first
+  };
+
+  const validationResult = ratingSchema.safeParse(rawData);
+  if (!validationResult.success) {
+    const errorMessages = Object.values(
+      validationResult.error.flatten().fieldErrors
+    )
+      .map((errors) => errors?.join(", "))
+      .filter(Boolean)
+      .join(" ");
+    return {
+      success: false,
+      error: `Invalid input: ${errorMessages || "Check entries."}`,
+    };
+  }
+
+  const { story_id, rating } = validationResult.data;
+
+  // Prepare data for upsert
+  const ratingData = {
+    user_id: user.id,
+    story_id: story_id,
+    rating: rating,
+  };
+
+  // Upsert the rating (Insert or Update if exists)
+  // Requires the unique constraint on (user_id, story_id)
+  console.log(
+    `Upserting rating for story ${story_id} by user ${user.id}:`,
+    ratingData
+  );
+  const { error: upsertError } = await supabase
+    .from("ratings")
+    .upsert(ratingData, {
+      onConflict: 'user_id, story_id' // Specify the unique constraint to avoid conflict error
+    });
+
+  // Handle Upsert Error
+  if (upsertError) {
+    console.error("!!! Rating Upsert Error:", upsertError);
+    let userMessage = "Failed to submit rating. Please try again.";
+    if (upsertError.message.includes("permission denied")) {
+      userMessage = "Permission denied to submit rating (RLS issue).";
+    } else if (upsertError.message.includes("check constraint")) {
+      userMessage = "Invalid rating value (must be 1-5).";
+    }
+    return { success: false, error: userMessage };
+  }
+
+  // Success! Trigger handles aggregate updates. Revalidate paths.
+  console.log(
+    `Successfully submitted rating for story ${story_id} by user ${user.id}`
+  );
+  revalidatePath(`/stories/${story_id}`); // Revalidate story page
+  revalidatePath(`/`); // Revalidate home page (if ratings shown)
+  revalidatePath(`/profile/[username]`, "layout"); // Revalidate profiles
+
+  return { success: true, message: "Rating submitted successfully!" };
+};
 
 export const updateStoryAction = async (
   formData: FormData

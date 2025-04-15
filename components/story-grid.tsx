@@ -1,3 +1,4 @@
+"use client";
 import {
   Card,
   CardContent,
@@ -5,25 +6,33 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
 import { Star } from "lucide-react";
+import { StarRatingInput } from "@/components/stories/star-rating-input"; // Import the rating component
+import type { User } from "@supabase/supabase-js"; // Import User type
 
-interface Story {
+interface StoryForGrid {
   story_id: string;
   title: string | null;
   content: string | null;
-  genre: string[];
+  genre: string[] | null;
   avg_rating?: number | null;
+  rating_count?: number | null;
+  created_at?: string | null; // Optional if not displayed directly here
+  updated_at?: string | null; // Optional if not displayed directly here
   users: { username: string | null } | null;
+  user_rating_value: number; // User's specific rating (0 if none) - Updated field name
+  is_public?: boolean; // Optional if only showing public here
 }
 
 interface StoryGridProps {
-  stories: Story[];
+  stories: StoryForGrid[];
+  currentUser: User | null; // Accept the current user object
 }
 
-export function StoryGrid({ stories }: StoryGridProps) {
+export function StoryGrid({ stories, currentUser }: StoryGridProps) {
   if (!stories || stories.length === 0) {
     return <p>No stories available for this page.</p>;
   }
@@ -33,43 +42,46 @@ export function StoryGrid({ stories }: StoryGridProps) {
       {stories.map((story) => {
         const authorUsername = story.users?.username;
         const hasAuthor = !!authorUsername;
-        const hasRating = typeof story.avg_rating === "number";
+        // Check if avg_rating exists and is a valid number > 0 for display
+        const hasDisplayableAvgRating =
+          typeof story.avg_rating === "number" && story.avg_rating > 0;
+
+        // User's specific rating is now directly available
+        const userRatingValue = story.user_rating_value;
 
         return (
-          // Add relative positioning to the Card for absolute positioning of the rating
           <Card key={story.story_id} className="relative flex flex-col">
-            {/* Rating Info */}
-            {hasRating && (
-              <div className="absolute right-3 top-3 flex items-center gap-0.5">
-                {/* Muted star, no fill */}
-                <Star className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-xs font-medium text-muted-foreground">
-                  {/* Format rating */}
-                  {story.avg_rating?.toFixed(1)}
-                </span>
-              </div>
-            )}
+            {/* Average Rating Display (Top Right - Read Only Average) for all users */}
+            <div
+              className="absolute right-3 top-3 flex items-center gap-0.5"
+              title={`Average rating: ${hasDisplayableAvgRating ? story.avg_rating?.toFixed(1) : "0.0"}`}
+            >
+              <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-500" />
+              <span className="text-xs font-medium text-muted-foreground">
+                {hasDisplayableAvgRating
+                  ? `${story.avg_rating?.toFixed(1)} (${story.rating_count || 0})`
+                  : "0.0 (0)"}
+              </span>
+            </div>
 
-            {/* Card Header */}
             <CardHeader className="pb-2 pr-10">
               {" "}
+              {/* Keep padding for rating */}
               <CardTitle>{story.title || "Untitled Story"}</CardTitle>
             </CardHeader>
             <CardContent className="flex-grow pb-2 pt-0">
-                <p className="text-sm text-muted-foreground break-words whitespace-normal overflow-hidden">
-                {story.content && story.content.length > 200
-                  ? `${story.content.slice(0, 200)}...`
-                  : story.content || "No preview available."}
-                </p>
+              <p className="line-clamp-3 text-sm text-muted-foreground">
+                {story.content || "No preview available."}
+              </p>
             </CardContent>
             <CardFooter className="mt-auto flex flex-col items-start gap-1.5 pt-1">
-              {/* --- Author Info --- */}
+              {/* Author Info */}
               <div className="w-full">
                 {hasAuthor ? (
                   <p className="text-sm font-medium text-gray-700 dark:text-gray-400">
                     By{" "}
                     <Link
-                      href={`/profile/${authorUsername}`}
+                      href={`/users/${authorUsername}`}
                       className="hover:underline"
                     >
                       {authorUsername}
@@ -77,41 +89,54 @@ export function StoryGrid({ stories }: StoryGridProps) {
                   </p>
                 ) : (
                   <p className="text-sm font-medium text-gray-700 dark:text-gray-400">
-                    By Unknown Author
+                    {" "}
+                    By Unknown Author{" "}
                   </p>
                 )}
               </div>
-              {/* --- End Author Info --- */}
+
+              {/* --- RATING INPUT SECTION --- */}
+              {currentUser && (
+                <div className="mt-1 w-full">
+                  <p className="mb-0.5 text-xs font-medium text-muted-foreground">
+                    Your Rating:
+                  </p>
+                  <StarRatingInput
+                    storyId={story.story_id}
+                    initialRating={userRatingValue} // <-- Use the direct value
+                    size={4.5}
+                  />
+                </div>
+              )}
+              {/* --- END RATING INPUT SECTION --- */}
 
               {/* Genre Info */}
-              <div className="flex flex-wrap items-center gap-1">
-                <span className="mr-1 text-xs font-semibold text-gray-600 dark:text-gray-300">
-                  Genres:
-                </span>
-                {story.genre && story.genre.length > 0 ? (
-                  story.genre.map((g) => (
+              {story.genre && story.genre.length > 0 && (
+                <div className="mt-1 flex flex-wrap items-center gap-1">
+                  <span className="mr-1 text-xs font-semibold text-gray-600 dark:text-gray-300">
+                    {" "}
+                    Genres:{" "}
+                  </span>
+                  {story.genre.map((g) => (
                     <Badge
                       key={g}
                       variant="secondary"
                       className="px-1.5 py-0.5 text-xs"
                     >
-                      {g}
+                      {" "}
+                      {g}{" "}
                     </Badge>
-                  ))
-                ) : (
-                  <span className="text-xs italic text-muted-foreground">
-                    N/A
-                  </span>
-                )}
-              </div>
+                  ))}
+                </div>
+              )}
 
               {/* Read More Button */}
-              <div className="w-full text-right">
-                {/* Rating info removed from here */}
-                <Link href={`/stories/${story.story_id}`}>
-                  <Button variant="outline" size="sm">
-                    Read More
-                  </Button>
+              <div className="mt-2 w-full text-right">
+                <Link
+                  href={`/stories/${story.story_id}`}
+                  className={buttonVariants({ variant: "outline", size: "sm" })}
+                >
+                  Read More
                 </Link>
               </div>
             </CardFooter>
