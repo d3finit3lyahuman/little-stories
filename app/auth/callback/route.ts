@@ -1,24 +1,36 @@
 import { createClient } from "@/utils/supabase/server";
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server"; 
 
-export async function GET(request: Request) {
-  // The `/auth/callback` route is required for the server-side auth flow implemented
-  // by the SSR package. It exchanges an auth code for the user's session.
-  // https://supabase.com/docs/guides/auth/server-side/nextjs
-  const requestUrl = new URL(request.url);
+
+export async function GET(request: NextRequest) {
+  const requestUrl = new URL(request.url); // Keep using URL object
   const code = requestUrl.searchParams.get("code");
   const origin = requestUrl.origin;
-  const redirectTo = requestUrl.searchParams.get("redirect_to")?.toString();
+  // Get the 'next' parameter used by password reset and potentially others
+  const next = requestUrl.searchParams.get("next");
 
   if (code) {
     const supabase = await createClient();
-    await supabase.auth.exchangeCodeForSession(code);
+    const { error } = await supabase.auth.exchangeCodeForSession(code); // Check for errors
+
+    if (error) {
+      console.error("Auth Callback Error (Code Exchange):", error.message);
+      // Redirect to an error page or sign-in on failure
+      return NextResponse.redirect(`${origin}/sign-in?error=auth_callback_failed`);
+    }
+  } else {
+      // Handle cases where no code is present (e.g., direct access)
+      console.warn("Auth Callback accessed without code.");
+      return NextResponse.redirect(`${origin}/sign-in?error=invalid_callback`);
   }
 
-  if (redirectTo) {
-    return NextResponse.redirect(`${origin}${redirectTo}`);
+  // Check if 'next' is provided and is a valid path
+  if (next && next.startsWith('/')) {
+    console.log(`Redirecting to 'next' path: ${next}`);
+    return NextResponse.redirect(`${origin}${next}`);
   }
 
-  // URL to redirect to after sign up process completes
-  return NextResponse.redirect(`${origin}/protected/confirmation`);
+  // If 'next' is not provided, redirect to a fallback URL
+  console.log("No 'next' param, redirecting to fallback: /");
+  return NextResponse.redirect(`${origin}/`); // Redirect to home page as a safer default
 }
