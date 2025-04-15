@@ -72,6 +72,64 @@ const ratingSchema = z.object({
     .max(5, "Rating cannot exceed 5."),
 });
 
+const removeRatingSchema = z.object({
+  story_id: z.string().uuid("Invalid Story ID."),
+});
+
+export const removeRatingAction = async (
+  formData: FormData
+): Promise<RatingActionResult> => {
+  // Get Client & Authenticated User
+  const supabase = await createClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { success: false, error: "You must be logged in to remove ratings." };
+  }
+
+  // Extract and Validate Data
+  const rawData = {
+    story_id: formData.get("story_id")?.toString(),
+  };
+
+  const validationResult = removeRatingSchema.safeParse(rawData);
+  if (!validationResult.success) {
+    return { success: false, error: "Invalid story ID provided." };
+  }
+
+  const { story_id } = validationResult.data;
+
+  // Attempt to delete the rating
+  // Use .match() to ensure we only delete the specific user's rating for this story
+  console.log(`Attempting to delete rating for story ${story_id} by user ${user.id}`);
+  const { error: deleteError } = await supabase
+    .from("ratings")
+    .delete()
+    .match({
+        user_id: user.id,
+        story_id: story_id
+    });
+
+  // 4. Handle Delete Error
+  if (deleteError) {
+    console.error("!!! Rating Delete Error:", deleteError);
+    let userMessage = "Failed to remove rating. Please try again.";
+    if (deleteError.message.includes("permission denied")) {
+      // Check RLS DELETE policy on ratings table
+      userMessage = "Permission denied to remove rating (RLS issue).";
+    }
+    return { success: false, error: userMessage };
+  }
+
+  // Success! Trigger handles aggregate updates. Revalidate paths.
+  console.log(`Successfully processed remove rating request for story ${story_id} by user ${user.id}`);
+  revalidatePath(`/stories/${story_id}`);
+  revalidatePath(`/`);
+  revalidatePath(`/profile/[username]`, 'layout');
+
+  return { success: true, message: "Rating removed successfully!" };
+};
+
 export const submitRatingAction = async (
   formData: FormData
 ): Promise<RatingActionResult> => {

@@ -25,10 +25,15 @@ export function formatDate(dateString: string | null) {
   });
 }
 
-export function wasEdited(dateString: string | null) {
-  if (!dateString) return false;
-  const date = new Date(dateString);
-  const now = new Date();
-  return date.getTime() > now.getTime();
-}
+export const wasEdited = (createdAt: string | null, updatedAt: string | null): boolean => {
+  if (!updatedAt || !createdAt) return false;
+  try {
+      const createdTime = new Date(createdAt).getTime();
+      const updatedTime = new Date(updatedAt).getTime();
+      // Check if updated_at is significantly later than created_at (> 60 seconds)
+      return updatedTime > (createdTime + 60000);
+  } catch (e) {
+      return false; 
+  }
+};
 

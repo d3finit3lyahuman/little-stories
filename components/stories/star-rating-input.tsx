@@ -3,9 +3,9 @@
 import React, { useState, useTransition, useEffect } from "react";
 import { Star } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button"; 
-import { submitRatingAction } from "@/app/actions";
-import { useToast } from "@/hooks/use-toast"; 
+import { Button } from "@/components/ui/button";
+import { submitRatingAction, removeRatingAction } from "@/app/actions";
+import { useToast } from "@/hooks/use-toast";
 
 interface StarRatingInputProps {
   storyId: string;
@@ -19,7 +19,7 @@ interface StarRatingInputProps {
 export function StarRatingInput({
   storyId,
   initialRating = 0,
-  size = 4, 
+  size = 4,
   readOnly = false,
   currentAvgRating = null,
   ratingCount = null,
@@ -34,45 +34,56 @@ export function StarRatingInput({
     setRating(initialRating ?? 0);
   }, [initialRating]);
 
-  const handleRatingSubmit = (newRating: number) => {
-    if (readOnly || isPending) return; // Don't submit if read-only or pending
+const handleRating = (newRating: number) => {
+    if (readOnly || isPending) return;
 
-    // Optimistic update -- store previous rating for potential rollback
-    const previousRating = rating;
+    // If clicking the same star, treat it as removing the rating
+    const finalRating = rating === newRating ? 0 : newRating;
     
-    // Only update if the rating is actually changing
-    if (previousRating !== newRating) {
-      setRating(newRating);
-    } else {
-      // If clicking the same star, treat it as removing the rating
-      setRating(0);
-      newRating = 0; // Update the value being submitted
-    }
+    // Optimistic update
+    const previousRating = rating;
+    setRating(finalRating);
 
     const formData = new FormData();
     formData.append("story_id", storyId);
-    formData.append("rating", newRating.toString());
-
+    
     startTransition(async () => {
-      const result = await submitRatingAction(formData);
-      if (!result.success) {
-        // Revert optimistic update on error
-        setRating(previousRating);
-        toast({
-          title: "Rating Error",
-          description: result.error || "Failed to submit rating.",
-          variant: "destructive",
-        });
-      } else {
-        toast({
-          title: "Rating Submitted",
-          description: "Your rating has been saved.",
-          variant: "default",
-        });
-        // No need to manually setRating again, trigger should update data eventually
-      }
+        try {
+            let result;
+            
+            if (finalRating === 0) {
+                // Remove rating
+                result = await removeRatingAction(formData);
+            } else {
+                // Submit new rating
+                formData.append("rating", finalRating.toString());
+                result = await submitRatingAction(formData);
+            }
+            
+            if (!result.success) {
+                setRating(previousRating); // Revert on error
+                toast({
+                    title: finalRating === 0 ? "Error Removing Rating" : "Rating Error",
+                    description: result.error || "Failed to update rating.",
+                    variant: "destructive",
+                });
+            } else {
+                toast({
+                    title: finalRating === 0 ? "Rating Removed" : "Rating Submitted",
+                    description: result.message || "Your rating has been saved.",
+                    variant: "default",
+                });
+            }
+        } catch (error) {
+            setRating(previousRating);
+            toast({
+                title: "Error",
+                description: "An unexpected error occurred.",
+                variant: "destructive",
+            });
+        }
     });
-  };
+};
 
   const starSizeClass = `h-${size} w-${size}`;
   const displayRating = readOnly ? (currentAvgRating ?? 0) : rating;
@@ -96,15 +107,15 @@ export function StarRatingInput({
             readOnly ? "cursor-default" : "cursor-pointer",
             isPending ? "cursor-wait opacity-50" : ""
           )}
-          onClick={() => !readOnly && handleRatingSubmit(star)}
+          onClick={() => !readOnly && handleRating(star)}
           onMouseEnter={() => !readOnly && setHoverRating(star)}
           onMouseLeave={() => !readOnly && setHoverRating(0)}
           disabled={isPending || readOnly}
           aria-label={
             readOnly
               ? `Rating: ${displayRating.toFixed(1)} stars`
-              : `Rate ${star} star${star > 1 ? "s" : ""}`
-          }
+              : `Rate ${star} star${star > 1 ? 's' : ''}${star === rating ? ' (Click again to remove)' : ''}` 
+          }        
         >
           <Star
             className={cn(

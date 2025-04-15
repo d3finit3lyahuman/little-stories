@@ -7,9 +7,10 @@ import {
 } from "@/components/ui/card";
 import {
   Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious,
-} from "@/components/ui/carousel"; // Import Carousel components
+} from "@/components/ui/carousel";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Star, AlertCircle, Edit } from "lucide-react";
+import { formatDate, wasEdited } from "@/utils/utils";
 
 // Re-define or import necessary types
 interface StoryData {
@@ -29,29 +30,6 @@ interface UserProfileStoriesProps {
   isOwner: boolean;
   username: string;
 }
-
-// Helper function
-const formatDate = (dateString: string | null) => {
-  if (!dateString) return "Unknown date";
-  try {
-    return new Date(dateString).toLocaleDateString("en-US", {
-      year: "numeric", month: "long", day: "numeric",
-    });
-  } catch (e) { return "Invalid date"; }
-};
-
-// Check if story was edited recently
-const wasEdited = (createdAt: string | null, updatedAt: string | null): boolean => {
-  if (!updatedAt || !createdAt) return false;
-  try {
-      const createdTime = new Date(createdAt).getTime();
-      const updatedTime = new Date(updatedAt).getTime();
-      // Check if updated_at is significantly later than created_at (> 60 seconds)
-      return updatedTime > (createdTime + 60000);
-  } catch (e) {
-      return false; 
-  }
-};
 
 export function UserProfileStories({
   stories,
